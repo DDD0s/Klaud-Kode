@@ -14,10 +14,10 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = (name) => fs.readFileSync(path.join(here, "fixtures", name), "utf8").trim().split("\n");
 const ctx = { workspaceRoot: "/w", instanceId: "id", claudeCwd: "/w/id", mcpConfig: "/w/.mcp.json", systemPromptFile: "" };
 
-function run(make, session, lines, stderr = "") {
-  const seen = { text: "", tools: [], bail: null };
+function run(make, session, lines, stderr = "", options = {}) {
+  const seen = { text: "", tools: [], bail: null, logs: [] };
   const p = make({ session, sessionId: session.id || null, hooks: { onText: (t) => (seen.text += t), onToolUse: (n) => seen.tools.push(n) },
-    bail: (message, type) => (seen.bail ??= { message, type }) });
+    bail: (message, type) => (seen.bail ??= { message, type }), options, log: (m) => seen.logs.push(m) });
   for (const l of lines) p.line(l);
   if (stderr) p.stderr(stderr);
   return { seen, parser: p, result: p.finish(0, null, stderr) };
@@ -80,15 +80,16 @@ test("agy argv: effort suffix slugs, resume, permissions", () => {
 
 test("agy parser: steps, tool names, usage, lost conversations and the real unauthenticated result", () => {
   const ev = (o) => JSON.stringify(o);
+  const step = (o) => ev({ event: "step_update", step_update: { conversation_id: "c1", ...o } });
   const lines = [
     ev({ event: "init", conversation_id: "c1", init: { cwd: "/x", tools: [] } }),
-    ev({ event: "step_update", step_index: 0, state: "DONE", step_type: "user_input" }),
-    ev({ event: "step_update", step_index: 1, state: "ACTIVE", step_type: "agent_response", text_delta: "Hel" }),
-    ev({ event: "step_update", step_index: 1, state: "ACTIVE", step_type: "agent_response", text_delta: "lo" }),
-    ev({ event: "step_update", step_index: 2, state: "ACTIVE", step_type: "tool", tool_name: "call_mcp_tool", tool_info: { name: "call_mcp_tool", parameters: { ServerName: "komputer_use", ToolName: "run_command" } } }),
-    ev({ event: "step_update", step_index: 2, state: "DONE", step_type: "tool", tool_name: "call_mcp_tool" }),
+    step({ step_index: 0, state: "DONE", step_type: "user_input" }),
+    step({ step_index: 1, state: "ACTIVE", step_type: "agent_response", text_delta: "Hel" }),
+    step({ step_index: 1, state: "ACTIVE", step_type: "agent_response", text_delta: "lo" }),
+    step({ step_index: 2, state: "ACTIVE", step_type: "tool", tool_name: "call_mcp_tool", tool_info: { name: "call_mcp_tool", parameters: { ServerName: "komputer_use", ToolName: "run_command" } } }),
+    step({ step_index: 2, state: "DONE", step_type: "tool", tool_name: "call_mcp_tool" }),
     ev({ event: "step_update", step_index: 3, state: "ACTIVE", step_type: "tool", tool_name: "view_file" }),
-    ev({ event: "step_update", step_index: 4, state: "ACTIVE", step_type: "agent_response", text_delta: "Done" }),
+    step({ step_index: 4, state: "ACTIVE", step_type: "agent_response", text_delta: "Done" }),
     "not json",
     ev({ event: "result", result: { conversation_id: "c1", status: "SUCCESS", response: "Done", num_turns: 1,
       usage: { input_tokens: 100, output_tokens: 7, thinking_tokens: 3, cache_read_tokens: 40, total_tokens: 110 } } }),
@@ -98,11 +99,11 @@ test("agy parser: steps, tool names, usage, lost conversations and the real unau
   assert.deepEqual(seen.tools, ["mcp__komputer_use__run_command", "view_file"]);
   assert.equal(parser.activity, true);
   assert.deepEqual(result, { ok: true, value: { text: "Hello\n\nDone", thinking: "", session_id: "c1",
-    usage: { input_tokens: 60, cache_read_input_tokens: 40, output_tokens: 7, reasoning_tokens: 3 } } }, "the final-step response is already in the stream");
+    usage: { input_tokens: 100, cache_read_input_tokens: 40, output_tokens: 7, reasoning_tokens: 3 } } }, "the final-step response is already in the stream");
   assert.equal(agyUsage(null), null);
 
   const done = (response) => ev({ event: "result", result: { conversation_id: "c2", status: "SUCCESS", response, num_turns: 1 } });
-  const delta = (text) => ev({ event: "step_update", step_index: 1, step_type: "agent_response", text_delta: text });
+  const delta = (text) => step({ step_index: 1, step_type: "agent_response", text_delta: text });
   const tail = run(agyParser, { mode: "new" }, [delta("Hello"), ev({ event: "some_future_event", x: 1 }), done("Hello world")]);
   assert.equal(tail.seen.text, "Hello world", "text the deltas missed is streamed at the end");
   assert.equal(tail.result.value.text, "Hello world");
@@ -123,6 +124,34 @@ test("agy parser: steps, tool names, usage, lost conversations and the real unau
   const agy = createBackends({ KOMPUTER_BACKENDS: "agy" }, ctx).get("antigravity");
   assert.equal(agy.classify(unauth.result.message), "upstream_auth_error");
   assert.equal(agy.classify("agy ERROR: RESOURCE_EXHAUSTED"), "rate_limit_error");
+});
+
+test("agy parser: real signed-in agy 1.4.3 trace (built-in run_command, nested step_update, per-step usage)", () => {
+  const lines = fixture("agy-1.4.3-signed-in-run-command.jsonl");
+  const init = JSON.parse(lines[0]).init;
+  assert.equal(init.tools.length, 60);
+  assert.equal(init.permission_mode, "always-proceed");
+  assert.ok(init.tools.includes("call_mcp_tool") && init.tools.includes("run_command"));
+
+  const plain = run(agyParser, { mode: "new" }, lines);
+  assert.equal(plain.seen.text, "The current directory (`/home/<user>/ws`) is empty.\n\nDone.\n", "deltas, including the one on the DONE step");
+  assert.deepEqual(plain.seen.tools, ["run_command"]);
+  assert.equal(plain.seen.bail, null, "outside island turns agy's own tools are allowed");
+  assert.equal(plain.parser.activity, true);
+  assert.deepEqual(plain.result, { ok: true, value: { text: "The current directory (`/home/<user>/ws`) is empty.\n\nDone.", thinking: "",
+    session_id: "<conversation-id>", usage: { input_tokens: 8872, cache_read_input_tokens: 4557, output_tokens: 90, reasoning_tokens: 25 } } });
+  assert.match(plain.seen.logs[0] || "", /always-proceed without --dangerously-skip-permissions/);
+
+  const stopped = run(agyParser, { mode: "new" }, lines, "", { island: true, guard: "stop" });
+  assert.equal(stopped.seen.bail.type, "builtin_tool_blocked");
+  assert.match(stopped.seen.bail.message, /built-in tool run_command on the service host \(permission_mode always-proceed\)/);
+  const warned = run(agyParser, { mode: "new" }, lines, "", { island: true, guard: "warn", skip: true });
+  assert.equal(warned.seen.bail, null);
+  assert.deepEqual(warned.seen.logs.length, 1);
+  assert.match(warned.seen.logs[0], /^WARNING: agy ran its built-in tool run_command/);
+  assert.equal(warned.result.ok, true);
+  const mcpOnly = lines.map((l) => l.replaceAll('"run_command"', '"call_mcp_tool"'));
+  assert.equal(run(agyParser, { mode: "new" }, mcpOnly, "", { island: true, guard: "stop" }).seen.bail, null, "MCP calls are what island turns are for");
 });
 
 test("muse parser: real muse 1.4.11 echo-provider traces (new session and resume)", () => {

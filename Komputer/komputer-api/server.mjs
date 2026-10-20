@@ -968,6 +968,7 @@ const PUBLIC_ERRORS = {
   tool_result_timeout: "Timed out waiting for tool results. Do not repeat completed operations automatically.",
   tool_choice_error: "The requested tool choice could not be satisfied.",
   tool_output_limit: "The tool cycle exceeded its output limit.",
+  builtin_tool_blocked: "The model used a tool on the service host instead of your computer, so the turn was stopped. Check what ran before retrying.",
 };
 
 function publicErrorMessage(e) {
@@ -986,6 +987,7 @@ const ERROR_STATUS = {
   session_conflict: 409,
   body_unavailable: 503,
   upstream_error: 502,
+  builtin_tool_blocked: 502,
 };
 
 /** Map CLI failures to HTTP statuses a client can act on. */
@@ -1082,6 +1084,8 @@ function spawnCli(backend, prepared, { session, privateMcp, hooks }) {
       session,
       sessionId: session.id || null,
       hooks,
+      options: prepared.parserOptions || {},
+      log: (m) => log(`${backend.name}: ${m}`),
       // The parser saw enough to know this run is wrong (e.g. a lost session): stop it now.
       bail: (message, type) => {
         kill();

@@ -68,36 +68,62 @@ export function agyUserEvent(text) {
 
 export function agyUsage(u) {
   if (!u || typeof u !== "object") return null;
-  const cached = Number(u.cache_read_tokens) || 0;
+  // agy's input_tokens already excludes cache reads (total_tokens = input + output).
   return {
-    // agy reports input including cache reads; keep Claude's split so usage maths stays uniform.
-    input_tokens: Math.max(0, (Number(u.input_tokens) || 0) - cached),
-    cache_read_input_tokens: cached,
+    input_tokens: Number(u.input_tokens) || 0,
+    cache_read_input_tokens: Number(u.cache_read_tokens) || 0,
     output_tokens: Number(u.output_tokens) || 0,
     reasoning_tokens: Number(u.thinking_tokens) || 0,
   };
 }
 
-function toolName(ev) {
-  const info = ev.tool_info || {};
+/**
+ * agy tools that neither touch the host it runs on nor reach the network.
+ * Everything else in init.tools (run_command, view_file, list_dir, browser_*,
+ * search_web, subagents, ...) acts on the service host, not the user's computer.
+ */
+export const AGY_HOST_FREE_TOOLS = new Set(["call_mcp_tool", "ask_question", "ask_permission", "ask_custom_permission", "list_permissions",
+  "finish", "wait", "wait_5_seconds", "manage_task"]);
+
+function toolName(st) {
+  const info = st.tool_info || {};
   const p = info.parameters || {};
-  if ((info.name || ev.tool_name) === "call_mcp_tool" && p.ServerName && p.ToolName) return `mcp__${p.ServerName}__${p.ToolName}`;
-  return ev.tool_name || info.name || "tool";
+  const server = p.ServerName ?? p.server_name ?? p.serverName;
+  const tool = p.ToolName ?? p.tool_name ?? p.toolName;
+  if ((st.tool_name || info.name) === "call_mcp_tool" && server && tool) return `mcp__${server}__${tool}`;
+  return st.tool_name || info.name || "tool";
 }
 
+let warnedAlwaysProceed = false;
 const squash = (s) => String(s).replace(/\s+/g, " ").trim();
+const object = (v) => v && typeof v === "object" && !Array.isArray(v);
 
-/** Parser for one agy run; unknown events are ignored. bail() aborts the child before it does more work. */
-export function agyParser({ session, hooks, bail }) {
+/**
+ * Parser for one agy run; unknown events are ignored. bail() aborts the child before it does more work.
+ * options.island: the turn must not use agy's own tools; options.guard: "stop" | "warn" | "off".
+ */
+export function agyParser({ session, hooks, bail, options = {}, log = () => {} }) {
   const { onText, onToolUse } = hooks;
   const requested = session.mode === "resume" ? session.id : null;
+  const guard = options.island ? options.guard || "stop" : "off";
   let conversation = requested;
   let result = null;
   let streamed = "";
   let lastTextStep = null;
   let afterTool = false;
   let activity = false;
+  let alwaysProceed = false;
   const announced = new Set();
+  const flagged = new Set();
+  const hostTool = (st, name) => {
+    if (guard === "off" || AGY_HOST_FREE_TOOLS.has(st.tool_name || st.tool_info?.name) || flagged.has(st.step_index)) return;
+    // Under always-proceed an ACTIVE step is already running; otherwise wait until it really ran.
+    if (!alwaysProceed && st.state !== "DONE") return;
+    flagged.add(st.step_index);
+    const message = `agy ran its built-in tool ${name} on the service host (permission_mode ${alwaysProceed ? "always-proceed" : "unknown"})`;
+    if (guard === "stop") bail(message, "builtin_tool_blocked");
+    else log(`WARNING: ${message}`);
+  };
   return {
     get activity() {
       return activity;
@@ -106,37 +132,47 @@ export function agyParser({ session, hooks, bail }) {
       const ev = jsonLine(line);
       if (!ev) return;
       if (ev.event === "init") {
-        const id = ev.conversation_id || ev.init?.conversation_id || null;
+        const init = object(ev.init) ? ev.init : {};
+        const id = ev.conversation_id || init.conversation_id || null;
         // agy starts a fresh conversation when --conversation is unknown.
         if (requested && id && id !== requested) {
           bail(`conversation "${requested}" not found (agy started ${id})`, "session_not_found");
           return;
         }
         if (id) conversation = id;
+        alwaysProceed = init.permission_mode === "always-proceed";
+        if (alwaysProceed && !options.skip && !warnedAlwaysProceed) {
+          warnedAlwaysProceed = true;
+          log("WARNING: agy reports permission_mode always-proceed without --dangerously-skip-permissions: its built-in tools run on this host without asking");
+        }
         return;
       }
       if (ev.event === "step_update") {
-        if (ev.step_type === "agent_response" || ev.step_type === "tool") activity = true;
-        if (ev.step_type === "agent_response" && typeof ev.text_delta === "string" && ev.text_delta) {
-          if (streamed && (afterTool || (lastTextStep !== null && ev.step_index !== lastTextStep))) {
+        // agy 1.4.3 nests the step under step_update; accept the flat shape too.
+        const st = object(ev.step_update) ? ev.step_update : ev;
+        if (st.step_type === "agent_response" || st.step_type === "tool") activity = true;
+        if (st.step_type === "agent_response" && typeof st.text_delta === "string" && st.text_delta) {
+          if (streamed && (afterTool || (lastTextStep !== null && st.step_index !== lastTextStep))) {
             streamed += "\n\n";
             onText?.("\n\n");
           }
           afterTool = false;
-          lastTextStep = ev.step_index;
-          streamed += ev.text_delta;
-          onText?.(ev.text_delta);
-        } else if (ev.step_type === "tool") {
-          const key = ev.step_index ?? announced.size;
+          lastTextStep = st.step_index;
+          streamed += st.text_delta;
+          onText?.(st.text_delta);
+        } else if (st.step_type === "tool") {
+          const name = toolName(st);
+          const key = st.step_index ?? announced.size;
           if (!announced.has(key)) {
             announced.add(key);
             afterTool = true;
-            onToolUse?.(toolName(ev));
+            onToolUse?.(name);
           }
+          hostTool(st, name);
         }
         return;
       }
-      if (ev.event === "result" && ev.result && typeof ev.result === "object") {
+      if (ev.event === "result" && object(ev.result)) {
         result = ev.result;
         if (Number(result.num_turns) > 0) activity = true;
         if (result.conversation_id && !requested) conversation = result.conversation_id;
@@ -177,7 +213,7 @@ export function agyParser({ session, hooks, bail }) {
 
 /**
  * @param {{bin: string, cwd: string, mcpConfig: string, modelId: string, models: string[], defaultModel: string,
- *          defaultEffort: string, efforts: string[], taskModel: string, permissions: "settings"|"skip", mcpSetup: "auto"|"off", extraArgs: string[]}} cfg
+ *          defaultEffort: string, efforts: string[], taskModel: string, permissions: "settings"|"skip", mcpSetup: "auto"|"off", builtinGuard: "stop"|"warn"|"off", extraArgs: string[]}} cfg
  */
 export function antigravityBackend(cfg) {
   const ids = [cfg.modelId, ...cfg.models.filter((m) => m !== cfg.modelId)];
@@ -250,7 +286,7 @@ export function antigravityBackend(cfg) {
           : `agy MCP: "agy mcp add ${name}" failed: ${r.out.slice(-300)}`);
       }
     },
-    async prepare({ session, prompt, attachments = [], systemPrompt, includeSystem = true, model, effort, mcp, mcpServer, workDir }) {
+    async prepare({ session, prompt, attachments = [], systemPrompt, includeSystem = true, model, effort, tools, mcp, mcpServer, workDir }) {
       const { text, binary } = splitAttachments(attachments);
       if (binary.length) throw backendError(400, "This model does not accept image or PDF attachments", "invalid_request_error");
       let cwd;
@@ -270,6 +306,8 @@ export function antigravityBackend(cfg) {
         args: agyArgs({ session, model, effort, permissions: cfg.permissions, extraArgs: cfg.extraArgs }),
         stdin: agyUserEvent(includeSystem ? inlineSystem(systemPrompt, body) : body),
         cwd,
+        // Harness and task turns, and Body turns without KOMPUTER_BUILTIN_TOOLS, must stay off agy's own tools.
+        parserOptions: { island: Boolean(mcpServer) || mcp === false || tools === "", guard: cfg.builtinGuard, skip: cfg.permissions === "skip" },
       };
       if (!servers.length) return prepared;
       // Outside agy's workspace, so its file tools do not list it next to the user's work.

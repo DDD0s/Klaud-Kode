@@ -45,6 +45,7 @@ export function createBackends(env, { workspaceRoot, instanceId, claudeCwd, mcpC
         taskModel: env.KOMPUTER_AGY_TASK_MODEL ?? "gemini-3.8-flash-low",
         permissions: (env.KOMPUTER_AGY_PERMISSIONS || "settings").toLowerCase(),
         mcpSetup: (env.KOMPUTER_AGY_MCP_SETUP || "auto").toLowerCase(),
+        builtinGuard: (env.KOMPUTER_AGY_BUILTIN_GUARD || "stop").toLowerCase(),
         extraArgs: splitArgs(env.KOMPUTER_AGY_EXTRA_ARGS),
       }),
     muse: () =>
@@ -70,6 +71,9 @@ export function createBackends(env, { workspaceRoot, instanceId, claudeCwd, mcpC
   }
   if (byName.has("antigravity") && !["auto", "off"].includes((env.KOMPUTER_AGY_MCP_SETUP || "auto").toLowerCase())) {
     throw new Error("KOMPUTER_AGY_MCP_SETUP must be auto or off");
+  }
+  if (byName.has("antigravity") && !["stop", "warn", "off"].includes((env.KOMPUTER_AGY_BUILTIN_GUARD || "stop").toLowerCase())) {
+    throw new Error("KOMPUTER_AGY_BUILTIN_GUARD must be stop, warn or off");
   }
   const ids = new Set();
   for (const b of backends) {

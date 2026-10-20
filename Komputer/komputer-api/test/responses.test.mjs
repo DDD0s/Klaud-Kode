@@ -201,7 +201,7 @@ test("responses: routed to agy and muse with effort, chained onto their sessions
   const a1 = (await responses(f, { model: "komputer-gemini-3.8-flash", input: "hi", reasoning: { effort: "low" } })).json();
   assert.equal(a1.status, "completed");
   assert.deepEqual(f.agyCalls().at(-1).args.slice(4), ["--model", "gemini-3.8-flash", "--effort", "low"]);
-  assert.equal(a1.usage.input_tokens, 20);
+  assert.equal(a1.usage.input_tokens, 25, "Responses input_tokens include the cached part");
   assert.equal(a1.usage.input_tokens_details.cached_tokens, 5);
   assert.equal(a1.usage.output_tokens_details.reasoning_tokens, 4);
   const a2 = (await responses(f, { model: "komputer-gemini-3.8-flash", input: "two", previous_response_id: a1.id })).json();

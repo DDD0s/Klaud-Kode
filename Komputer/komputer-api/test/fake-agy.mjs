@@ -1,8 +1,12 @@
 #!/usr/bin/env node
-// Test double for the Antigravity CLI (`agy`), modelled on agy 1.4.3:
-// --input-format stream-json on stdin, init / step_update / result events on
-// stdout, a warning (not an error) for an unknown --conversation, and the
-// single ERROR result line it prints when not signed in.
+// Test double for the Antigravity CLI (`agy`), modelled on agy 1.4.3 and the
+// signed-in trace in fixtures/agy-1.4.3-signed-in-run-command.jsonl:
+// --input-format stream-json on stdin; init (cwd, the same 60 tool names,
+// permission_mode), step_update events nested under "step_update" with
+// text_delta on agent_response steps (the DONE step may carry the last one)
+// and tool_name + tool_info.{name,parameters,output} on tool steps, per-step
+// usage, and a final result. Also a warning (not an error) for an unknown
+// --conversation and the single ERROR result line it prints when not signed in.
 //
 // MCP works like the real CLI: `agy mcp add|remove|list|enable|disable`
 // edits $HOME/.gemini/config/mcp_config.json (the only MCP config agy reads),
@@ -24,7 +28,9 @@ const argVal = (flag) => {
 };
 const out = (o) => process.stdout.write(JSON.stringify(o) + "\n");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const usage = { input_tokens: 20, output_tokens: 9, thinking_tokens: 4, cache_read_tokens: 5, total_tokens: 33 };
+const usage = { input_tokens: 20, output_tokens: 9, thinking_tokens: 4, cache_read_tokens: 5, total_tokens: 29 };
+const trace = path.join(path.dirname(new URL(import.meta.url).pathname), "fixtures", "agy-1.4.3-signed-in-run-command.jsonl");
+const BUILTIN_TOOLS = JSON.parse(fs.readFileSync(trace, "utf8").split("\n")[0]).init.tools;
 const configFile = path.join(os.homedir(), ".gemini", "config", "mcp_config.json");
 const readConfig = () => (fs.existsSync(configFile) ? JSON.parse(fs.readFileSync(configFile, "utf8")) : { mcpServers: {} });
 const writeConfig = (c) => {
@@ -187,10 +193,11 @@ async function turn(prompt, mcp) {
   const resumed = Boolean(id);
   id ||= randomUUID();
   fs.writeFileSync(path.join(stateDir, `agy-${id}.txt`), prompt);
-  const mcpTools = Object.entries(mcp).flatMap(([server, s]) => s.tools.map((t) => `${server}/${t.name}`));
-  out({ event: "init", conversation_id: id, init: { cwd: process.cwd(), tools: ["view_file", "run_command", "call_mcp_tool", ...mcpTools],
-    permission_mode: args.includes("--dangerously-skip-permissions") ? "bypass" : "default", model: argVal("--model") || "default" } });
-  out({ event: "step_update", conversation_id: id, step_index: 0, state: "DONE", step_type: "user_input" });
+  // The trace lists agy's own tools only; MCP tools are reached through call_mcp_tool.
+  out({ event: "init", conversation_id: id, init: { cwd: process.cwd(), tools: BUILTIN_TOOLS,
+    permission_mode: process.env.FAKE_AGY_PERMISSION_MODE || (args.includes("--dangerously-skip-permissions") ? "always-proceed" : "default") } });
+  const stepOut = (o) => out({ event: "step_update", step_update: { conversation_id: id, ...o } });
+  stepOut({ step_index: 0, state: "DONE", step_type: "user_input" });
   out({ event: "telemetry_hint", detail: "unknown event types must be ignored" });
 
   if (prompt.includes("FAIL_LIMIT")) {
@@ -201,19 +208,29 @@ async function turn(prompt, mcp) {
 
   let step = 1;
   const say = async (text) => {
-    for (const piece of [text.slice(0, 4), text.slice(4)].filter(Boolean)) {
-      out({ event: "step_update", conversation_id: id, step_index: step, state: "ACTIVE", step_type: "agent_response", text_delta: piece });
+    const pieces = [text.slice(0, 4), text.slice(4)].filter(Boolean);
+    for (const [i, piece] of pieces.entries()) {
+      const last = i === pieces.length - 1;
+      stepOut({ step_index: step, state: last ? "DONE" : "ACTIVE", step_type: "agent_response", text_delta: piece, ...(last ? { usage } : {}) });
       if (prompt.includes("SLOW")) await sleep(300);
     }
-    out({ event: "step_update", conversation_id: id, step_index: step, state: "DONE", step_type: "agent_response" });
+    step++;
+  };
+  const toolStep = async (name, parameters, output) => {
+    // A tool turn starts with a text-free agent_response step, as in the trace.
+    stepOut({ step_index: step++, state: "DONE", step_type: "agent_response", usage });
+    stepOut({ step_index: step, state: "ACTIVE", step_type: "tool", tool_name: name, tool_info: { name, parameters } });
+    if (prompt.includes("SLOW")) await sleep(300);
+    stepOut({ step_index: step, state: "DONE", step_type: "tool", tool_name: name, tool_info: { name, parameters, output } });
     step++;
   };
   if (prompt.includes("TOOL")) {
     await say("checking");
-    const info = { name: "call_mcp_tool", parameters: { ServerName: "komputer_use", ToolName: "run_command" } };
-    out({ event: "step_update", conversation_id: id, step_index: step, state: "ACTIVE", step_type: "tool", tool_name: "call_mcp_tool", tool_info: info });
-    out({ event: "step_update", conversation_id: id, step_index: step, state: "DONE", step_type: "tool", tool_name: "call_mcp_tool", tool_info: { ...info, output: "ok" } });
-    step++;
+    await toolStep("call_mcp_tool", { ServerName: "komputer_use", ToolName: "run_command" }, "ok");
+  }
+  if (prompt.includes("BUILTIN")) {
+    fs.appendFileSync(path.join(stateDir, "agy-host-commands.jsonl"), JSON.stringify({ command: "ls -la", cwd: process.cwd() }) + "\n");
+    await toolStep("run_command", { CommandLine: "ls -la" }, "Command exited with code 0.\n\nCommand output:\ntotal 0\r\n");
   }
   const reply = resumed ? `prev=${previous}|now=${prompt}` : `agy:${prompt}`;
   if (prompt.includes("NO_DELTAS")) {
@@ -230,10 +247,12 @@ async function clientTools(id, prompt, mcp) {
   const forced = /For your first tool call, use ([a-z0-9_]+)/.exec(prompt)?.[1];
   const tool = server.tools.find((t) => t.name === forced) || server.tools[0];
   const info = { name: "call_mcp_tool", parameters: { ServerName: "komputer_use", ToolName: tool.name } };
-  out({ event: "step_update", conversation_id: id, step_index: 1, state: "ACTIVE", step_type: "tool", tool_name: "call_mcp_tool", tool_info: info });
+  const stepOut = (o) => out({ event: "step_update", step_update: { conversation_id: id, ...o } });
+  stepOut({ step_index: 1, state: "DONE", step_type: "agent_response", usage });
+  stepOut({ step_index: 2, state: "ACTIVE", step_type: "tool", tool_name: "call_mcp_tool", tool_info: info });
   const result = await server.client.call(tool.name, { query: "from agy" });
-  out({ event: "step_update", conversation_id: id, step_index: 1, state: "DONE", step_type: "tool", tool_name: "call_mcp_tool", tool_info: { ...info, output: result } });
+  stepOut({ step_index: 2, state: "DONE", step_type: "tool", tool_name: "call_mcp_tool", tool_info: { ...info, output: result } });
   const reply = `agy tool result:${result.content?.[0]?.text ?? ""}`;
-  out({ event: "step_update", conversation_id: id, step_index: 2, state: "ACTIVE", step_type: "agent_response", text_delta: reply });
+  stepOut({ step_index: 3, state: "DONE", step_type: "agent_response", text_delta: reply, usage });
   out({ event: "result", result: { conversation_id: id, status: "SUCCESS", response: reply, error: "", num_turns: 1, usage } });
 }

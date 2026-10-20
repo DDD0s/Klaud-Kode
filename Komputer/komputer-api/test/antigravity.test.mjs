@@ -87,7 +87,7 @@ test("agy: routed by model id, session created then resumed with --conversation"
   assert.match(conversation, /^[0-9a-f-]{36}$/);
   const first = r.json().choices[0].message.content;
   assert.ok(first.startsWith("agy:<system_instructions>"));
-  assert.deepEqual(r.json().usage, { prompt_tokens: 20, completion_tokens: 9, total_tokens: 29 });
+  assert.deepEqual(r.json().usage, { prompt_tokens: 25, completion_tokens: 9, total_tokens: 34 }, "agy input_tokens exclude its 5 cache reads");
 
   r = await chat(f, { model: "komputer-gemini-4-argon", messages: [{ role: "system", content: "RULE" }, user("hello"), { role: "assistant", content: first }, user("second")] },
     { "x-conversation-id": "agy-chat" });
@@ -266,4 +266,28 @@ test("agy: non-Gemini models keep the CLI's full effort range; slugs with an eff
   assert.deepEqual(f.agyCalls().at(-1).args.slice(4), ["--model", "gemini-3.8-flash-low"]);
   await chat(f, { model: "komputer-agy", messages: [user("### Task: title")] });
   assert.deepEqual(f.agyCalls().at(-1).args.slice(4), ["--model", "gemini-3.8-flash-low"], "background tasks default to the cheapest Gemini");
+});
+
+test("agy: a built-in tool that ran on the service host stops island turns; KOMPUTER_AGY_BUILTIN_GUARD and KOMPUTER_BUILTIN_TOOLS relax it", async (t) => {
+  const f = await agyFixture(t, { KOMPUTER_AGY_PERMISSIONS: "skip" });
+  const r = await chat(f, { model: "komputer-agy", messages: [user("BUILTIN list files")] });
+  assert.equal(r.status, 502, r.text);
+  assert.equal(r.json().error.type, "builtin_tool_blocked");
+  assert.match(r.json().error.message, /service host instead of your computer/);
+  assert.match(f.logs(), /agy ran its built-in tool run_command on the service host \(permission_mode always-proceed\)/);
+  const s = await chat(f, { model: "komputer-agy", stream: true, messages: [user("BUILTIN SLOW again")] });
+  const events = sse(s.text);
+  assert.equal(events.at(-1).error?.type, "builtin_tool_blocked", "after the stream opened, the failure is reported in-stream");
+  assert.ok((await chat(f, { model: "komputer-agy", messages: [user("TOOL via mcp")] })).status === 200, "MCP tool steps are fine");
+
+  const warn = await agyFixture(t, { KOMPUTER_AGY_BUILTIN_GUARD: "warn", KOMPUTER_CHILD_ENV_EXTRA: "FAKE_AGY_PERMISSION_MODE", FAKE_AGY_PERMISSION_MODE: "always-proceed" });
+  const w = await chat(warn, { model: "komputer-agy", messages: [user("BUILTIN list files")] });
+  assert.equal(w.status, 200, w.text);
+  assert.match(warn.logs(), /antigravity: WARNING: agy ran its built-in tool run_command on the service host/);
+  assert.match(warn.logs(), /always-proceed without --dangerously-skip-permissions/);
+
+  const open = await agyFixture(t, { KOMPUTER_BUILTIN_TOOLS: "default", KOMPUTER_AGY_PERMISSIONS: "skip" });
+  const o = await chat(open, { model: "komputer-agy", messages: [user("BUILTIN list files")] });
+  assert.equal(o.status, 200, "Body turns that opted into built-in tools are not guarded");
+  assert.match(o.json().choices[0].message.content, /^agy:/);
 });

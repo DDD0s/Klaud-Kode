@@ -1,45 +1,61 @@
 // Antigravity CLI backend: `agy --input-format stream-json --output-format stream-json`.
 //
 // Verified against agy 1.4.3 (see docs/backends.md): flags, the stdin user
-// event, the init / step_update / result event shapes, the unauthenticated
-// result, and the "conversation not found" warning on an unknown
-// --conversation. Not verifiable without a signed-in account and therefore
-// configurable: workspace MCP pickup from <cwd>/.agents/mcp_config.json,
-// --model naming, and how text_delta / response behave across tool steps.
+// event, init / step_update / result events, model and effort rules, the
+// unauthenticated result, the "conversation not found" warning, and MCP
+// loading: only the global ~/.gemini/config/mcp_config.json (or plugins) is
+// read, and stdio servers inherit agy's environment and cwd. MCP servers
+// therefore reach agy through agy-mcp-bridge.mjs, registered once with
+// `agy mcp add`, and each turn points the bridge at its own target.
 import path from "node:path";
+import os from "node:os";
+import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { promises as fs } from "node:fs";
 import { buildChildEnv, AGY_KEEP } from "../claude-env.mjs";
 import { backendError, inlineSystem, jsonLine, promptWithText, readMcpServers, splitAttachments } from "./common.mjs";
 
 const EFFORT_SUFFIX = /-(low|medium|high|xhigh|max)$/i;
 const ORDER = ["low", "medium", "high", "xhigh", "max"];
+export const AGY_BRIDGE = path.join(path.dirname(fileURLToPath(import.meta.url)), "agy-mcp-bridge.mjs");
+export const agyMcpConfigFile = (home) => path.join(home, ".gemini", "config", "mcp_config.json");
 
-/** Claude-format MCP servers → agy's mcp_config.json (the format `agy mcp add` writes). */
-export function agyMcpConfig(servers) {
-  const mcpServers = {};
-  for (const s of servers) {
-    mcpServers[s.name] = s.url
-      ? { serverUrl: s.url, headers: s.headers || {}, disabled: false }
-      : { command: s.command, args: s.args || [], env: s.env || {}, disabled: false };
-  }
-  return { mcpServers };
+/** The global entry that `agy mcp add <name> -- node <bridge> <name>` writes. */
+export const bridgeEntry = (name, node = process.execPath) => ({ command: node, args: [AGY_BRIDGE, name] });
+
+const isBridge = (entry, name) =>
+  entry && !entry.disabled && entry.command && Array.isArray(entry.args) && entry.args.length === 2 &&
+  path.basename(String(entry.args[0])) === "agy-mcp-bridge.mjs" && entry.args[1] === name;
+
+/** Per-turn bridge targets, keyed by MCP server name. */
+export function agyBridgeTargets(servers) {
+  const out = {};
+  for (const s of servers) out[s.name] = s.url ? { url: s.url, headers: s.headers || {} } : { command: s.command, args: s.args || [], env: s.env || {} };
+  return { servers: out };
 }
 
-async function writePrivateJson(file, value) {
-  await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-  const data = JSON.stringify(value, null, 2);
-  const current = await fs.readFile(file, "utf8").catch(() => null);
-  if (current === data) return;
-  const tmp = `${file}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, data, { mode: 0o600 });
-  await fs.rename(tmp, file);
+async function readGlobalMcp(home) {
+  try {
+    return JSON.parse(await fs.readFile(agyMcpConfigFile(home), "utf8"))?.mcpServers || {};
+  } catch {
+    return {};
+  }
+}
+
+function runAgy(bin, args, env) {
+  const viaNode = /\.(c|m)?js$/i.test(bin);
+  return new Promise((resolve) => {
+    execFile(viaNode ? process.execPath : bin, viaNode ? [bin, ...args] : args, { env, timeout: 30_000 }, (err, stdout, stderr) =>
+      resolve({ ok: !err, out: `${stdout}${stderr}`.trim() }));
+  });
 }
 
 export function agyArgs({ session, model, effort, permissions, extraArgs = [] }) {
   const args = ["--input-format", "stream-json", "--output-format", "stream-json"];
   if (permissions === "skip") args.push("--dangerously-skip-permissions");
   if (model) args.push("--model", model);
-  // A model slug like gemini-4-argon-high already names its effort.
+  // agy rejects a slug that names its effort (gemini-3.8-flash-low) combined with --effort.
   if (effort && !EFFORT_SUFFIX.test(model || "")) args.push("--effort", effort);
   if (session.mode === "resume" && session.id) args.push("--conversation", session.id);
   args.push(...extraArgs);
@@ -69,7 +85,9 @@ function toolName(ev) {
   return ev.tool_name || info.name || "tool";
 }
 
-/** Parser for one agy run. bail() aborts the child before it does more work. */
+const squash = (s) => String(s).replace(/\s+/g, " ").trim();
+
+/** Parser for one agy run; unknown events are ignored. bail() aborts the child before it does more work. */
 export function agyParser({ session, hooks, bail }) {
   const { onText, onToolUse } = hooks;
   const requested = session.mode === "resume" ? session.id : null;
@@ -131,10 +149,19 @@ export function agyParser({ session, hooks, bail }) {
     finish(code, sig, stderr) {
       if (result) {
         if (result.status === "SUCCESS") {
+          const response = String(result.response || "");
+          let text = streamed;
+          // The final response may cover only the last step, or text the deltas never carried.
+          if (!streamed.trim() || (response.startsWith(streamed) && response.length > streamed.length)) {
+            onText?.(response.slice(streamed.length));
+            text = response;
+          } else if (!squash(streamed).includes(squash(response))) {
+            text = response;
+          }
           return {
             ok: true,
             value: {
-              text: String(result.response || streamed).trim(),
+              text: text.trim(),
               thinking: "",
               session_id: conversation || result.conversation_id || null,
               usage: agyUsage(result.usage),
@@ -150,13 +177,22 @@ export function agyParser({ session, hooks, bail }) {
 
 /**
  * @param {{bin: string, cwd: string, mcpConfig: string, modelId: string, models: string[], defaultModel: string,
- *          defaultEffort: string, efforts: string[], taskModel: string, permissions: "settings"|"skip", extraArgs: string[]}} cfg
+ *          defaultEffort: string, efforts: string[], taskModel: string, permissions: "settings"|"skip", mcpSetup: "auto"|"off", extraArgs: string[]}} cfg
  */
 export function antigravityBackend(cfg) {
   const ids = [cfg.modelId, ...cfg.models.filter((m) => m !== cfg.modelId)];
   const efforts = cfg.efforts.length ? cfg.efforts : ["low", "medium", "high"];
   const bodyDir = path.join(cfg.cwd, "body");
   const plainDir = path.join(cfg.cwd, "plain");
+  const targetDir = path.join(cfg.cwd, "mcp");
+  let bridgeNames = [];
+  const setupNotes = [];
+  /** komputer-gemini-4-argon → gemini-4-argon; komputer-agy-claude-opus-5-5 → claude-opus-5-5. */
+  const resolveModel = (requested) => {
+    const id = String(requested || "").trim();
+    if (!id || id === cfg.modelId) return cfg.defaultModel;
+    return id.replace(/^komputer-/i, "").replace(/^(agy|antigravity)-/i, "") || cfg.defaultModel;
+  };
   const clampEffort = (e) => {
     if (efforts.includes(e)) return e;
     const want = ORDER.indexOf(e);
@@ -179,11 +215,7 @@ export function antigravityBackend(cfg) {
     owns(id) {
       return ids.includes(id) || /^(komputer-)?(agy|antigravity|gemini)(-|$)/i.test(id);
     },
-    resolveModel(requested) {
-      const id = String(requested || "").trim();
-      if (!id || id === cfg.modelId) return cfg.defaultModel;
-      return id.replace(/^komputer-/i, "").replace(/^(agy|antigravity)-/i, "") || cfg.defaultModel;
-    },
+    resolveModel,
     resolveEffort(body) {
       let e = String(body.reasoning_effort ?? body.effort ?? body.output_config?.effort ?? "").toLowerCase().trim();
       if (e === "minimal" || e === "none") e = "low";
@@ -191,7 +223,11 @@ export function antigravityBackend(cfg) {
         const budget = Number(body.thinking.budget_tokens) || 0;
         e = budget >= 32000 ? "max" : budget >= 16000 ? "xhigh" : "high";
       }
-      return (e && clampEffort(e)) || cfg.defaultEffort;
+      if (!e) return cfg.defaultEffort;
+      // Gemini models reject xhigh/max; other agy models (and an unknown default) get the CLI's own range.
+      const model = resolveModel(body.model) || cfg.defaultModel;
+      if (!model || /^gemini/i.test(model)) return clampEffort(e) || cfg.defaultEffort;
+      return ORDER.includes(e) ? e : cfg.defaultEffort;
     },
     childEnv(source, canonicalCwd) {
       return buildChildEnv(source, canonicalCwd, AGY_KEEP);
@@ -199,26 +235,47 @@ export function antigravityBackend(cfg) {
     async init() {
       await fs.mkdir(bodyDir, { recursive: true });
       await fs.mkdir(plainDir, { recursive: true });
+      await fs.mkdir(targetDir, { recursive: true, mode: 0o700 });
+      bridgeNames = [...new Set([cfg.bodyMcp, "komputer_use", ...(await readMcpServers(cfg.mcpConfig).catch(() => [])).map((s) => s.name)])];
+      if (cfg.mcpSetup !== "auto") return;
+      const home = os.homedir();
+      const current = await readGlobalMcp(home);
+      const env = buildChildEnv(process.env, cfg.cwd, AGY_KEEP);
+      for (const name of bridgeNames) {
+        if (isBridge(current[name], name) && current[name].command === process.execPath && current[name].args[0] === AGY_BRIDGE) continue;
+        const { command, args } = bridgeEntry(name);
+        const r = await runAgy(cfg.bin, ["mcp", "add", name, "--", command, ...args], env);
+        setupNotes.push(r.ok
+          ? `agy MCP: registered "${name}" in ${agyMcpConfigFile("~")} (stdio bridge to this service)`
+          : `agy MCP: "agy mcp add ${name}" failed: ${r.out.slice(-300)}`);
+      }
     },
     async prepare({ session, prompt, attachments = [], systemPrompt, includeSystem = true, model, effort, mcp, mcpServer, workDir }) {
       const { text, binary } = splitAttachments(attachments);
       if (binary.length) throw backendError(400, "This model does not accept image or PDF attachments", "invalid_request_error");
       let cwd;
+      let servers = [];
       if (mcpServer) {
         cwd = path.join(workDir, "agy");
-        await writePrivateJson(path.join(cwd, ".agents", "mcp_config.json"), agyMcpConfig([mcpServer]));
+        servers = [mcpServer];
       } else if (mcp === false) {
         cwd = plainDir;
       } else {
         cwd = bodyDir;
-        await writePrivateJson(path.join(cwd, ".agents", "mcp_config.json"), agyMcpConfig(await readMcpServers(cfg.mcpConfig)));
+        servers = await readMcpServers(cfg.mcpConfig);
       }
+      await fs.mkdir(cwd, { recursive: true });
       const body = promptWithText(prompt, text);
-      return {
+      const prepared = {
         args: agyArgs({ session, model, effort, permissions: cfg.permissions, extraArgs: cfg.extraArgs }),
         stdin: agyUserEvent(includeSystem ? inlineSystem(systemPrompt, body) : body),
         cwd,
       };
+      if (!servers.length) return prepared;
+      // Outside agy's workspace, so its file tools do not list it next to the user's work.
+      const file = path.join(mcpServer ? workDir : targetDir, `agy-mcp-${randomUUID()}.json`);
+      await fs.writeFile(file, JSON.stringify(agyBridgeTargets(servers)), { mode: 0o600 });
+      return { ...prepared, env: { KOMPUTER_AGY_MCP_FILE: file }, cleanup: () => fs.rm(file, { force: true }).catch(() => {}) };
     },
     parser: agyParser,
     classify(message) {
@@ -228,7 +285,20 @@ export function antigravityBackend(cfg) {
     },
     /** Startup warnings for operator configuration the service must not change itself. */
     async checks(home) {
-      const notes = [];
+      const notes = [...setupNotes];
+      const names = bridgeNames.length ? bridgeNames : [...new Set([cfg.bodyMcp, "komputer_use"])];
+      const global = await readGlobalMcp(home);
+      for (const name of names) {
+        if (!isBridge(global[name], name)) {
+          notes.push(`agy MCP: "${name}" is not the komputer bridge in ~/.gemini/config/mcp_config.json, so agy turns cannot reach it; ` +
+            `run: agy mcp add ${name} -- ${process.execPath} ${AGY_BRIDGE} ${name}`);
+        }
+      }
+      for (const [name, entry] of Object.entries(global)) {
+        if (!names.includes(name) && !entry?.disabled) {
+          notes.push(`agy MCP: global server "${name}" is enabled for every agy turn and runs on this host; disable it with: agy mcp disable ${name}`);
+        }
+      }
       if (cfg.permissions === "skip") {
         notes.push("KOMPUTER_AGY_PERMISSIONS=skip passes --dangerously-skip-permissions: agy's built-in shell and file tools run unprompted on this host");
         return notes;
@@ -240,7 +310,6 @@ export function antigravityBackend(cfg) {
       } catch {
         /* missing or unreadable: reported below */
       }
-      const names = [...new Set([cfg.bodyMcp, "komputer_use"])];
       for (const name of names) {
         if (!allow.some((r) => String(r) === `mcp(${name}/*)` || String(r) === "mcp(*)")) {
           notes.push(`agy permissions: add "mcp(${name}/*)" to permissions.allow in ~/.gemini/antigravity-cli/settings.json, otherwise headless agy soft-denies those MCP tools`);

@@ -11,12 +11,14 @@ export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export async function apiFixture(t, { env: extra = {}, prepare = () => {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "komputer-harness-test-"));
   fs.mkdirSync(path.join(dir, "state"));
+  fs.mkdirSync(path.join(dir, "home"));
   fs.writeFileSync(path.join(dir, "KEYS.txt"), `api-key: ${KEY}\n`);
   await prepare(dir);
   const env = { ...process.env };
   for (const key of Object.keys(env)) if (/^KOMPUTER_/i.test(key)) delete env[key];
   const child = spawn(process.execPath, [path.join(here, "..", "server.mjs")], {
-    env: { ...env, KOMPUTER_API_HOST: "127.0.0.1", KOMPUTER_API_PORT: "0",
+    // A private HOME keeps CLI config writes (agy mcp add) out of the developer's own.
+    env: { ...env, HOME: path.join(dir, "home"), KOMPUTER_API_HOST: "127.0.0.1", KOMPUTER_API_PORT: "0",
       KOMPUTER_KEYS_FILE: path.join(dir, "KEYS.txt"), KOMPUTER_SESSIONS_FILE: path.join(dir, "sessions.json"),
       KOMPUTER_SESSION_DIR: dir, KOMPUTER_CLAUDE_CWD: dir, KOMPUTER_AUTH_FAIL_DELAY_MS: "1",
       KOMPUTER_HEALTH_URL: "http://127.0.0.1:9/healthz", KOMPUTER_TUNNEL_UP: path.join(dir, "disabled.sh"),

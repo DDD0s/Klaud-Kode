@@ -1,19 +1,49 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import http from "node:http";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { apiFixture } from "./helpers.mjs";
 
-const BODY_MCP = { mcpServers: { komputer_use: { type: "http", url: "http://127.0.0.1:9/mcp/body-path-token", headers: { Authorization: "Bearer body-secret" } } } };
+const BRIDGE = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "backends", "agy-mcp-bridge.mjs");
+
 const NOTE_START = "You work on the user's computer.";
 const BASE = ["--input-format", "stream-json", "--output-format", "stream-json"];
 
-async function agyFixture(t, env = {}) {
+/** Streamable HTTP MCP server standing in for the body; answers with SSE like the MCP SDK can. */
+async function bodyServer(t) {
+  const seen = [];
+  const server = http.createServer(async (req, res) => {
+    let raw = "";
+    for await (const c of req) raw += c;
+    const msg = JSON.parse(raw);
+    seen.push({ method: msg.method, auth: req.headers.authorization, session: req.headers["mcp-session-id"] || null });
+    if (msg.id === undefined) { res.writeHead(202); res.end(); return; }
+    const reply = msg.method === "initialize"
+      ? { result: { protocolVersion: msg.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "body", version: "1" } } }
+      : msg.method === "tools/list" ? { result: { tools: [{ name: "system_info", inputSchema: { type: "object", properties: {} } }] } }
+        : { error: { code: -32601, message: "Method not found" } };
+    res.writeHead(200, { "content-type": "text/event-stream", "mcp-session-id": "body-session-1" });
+    res.end(`event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: msg.id, ...reply })}\n\n`);
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  t.after(() => new Promise((r) => server.close(r)));
+  return { url: `http://127.0.0.1:${server.address().port}/mcp`, seen };
+}
+
+async function agyFixture(t, env = {}, { prepare = () => {} } = {}) {
+  const body = await bodyServer(t);
   const f = await apiFixture(t, {
     env: { KOMPUTER_SKIP_TUNNEL: "1", KOMPUTER_BACKENDS: "claude,antigravity", ...env },
-    prepare: (dir) => fs.writeFileSync(path.join(dir, ".mcp.json"), JSON.stringify(BODY_MCP)),
+    prepare: (dir) => {
+      fs.writeFileSync(path.join(dir, ".mcp.json"), JSON.stringify({ mcpServers: { komputer_use: { type: "http", url: body.url, headers: { Authorization: "Bearer body-secret" } } } }));
+      return prepare(dir);
+    },
   });
   await f.ready();
+  f.body = body;
+  f.globalMcp = () => JSON.parse(fs.readFileSync(path.join(f.dir, "home", ".gemini", "config", "mcp_config.json"), "utf8")).mcpServers;
   return f;
 }
 const chat = (f, body, headers = {}) => f.request("/v1/chat/completions", body, { headers });
@@ -39,10 +69,18 @@ test("agy: routed by model id, session created then resumed with --conversation"
   assert.ok(c.prompt.endsWith("RULE\n</system_instructions>\n\nhello"), c.prompt);
   assert.equal(c.cwd, fs.realpathSync(path.join(f.dir, "agy-ws", "body")));
   assert.equal(c.gitCeiling, fs.realpathSync(path.join(f.dir, "agy-ws")));
-  assert.deepEqual(c.mcp.config.mcpServers.komputer_use, { serverUrl: BODY_MCP.mcpServers.komputer_use.url, headers: { Authorization: "Bearer body-secret" }, disabled: false });
-  assert.equal(c.mcp.mode, 0o600);
-  assert.ok(!c.envKeys.some((k) => /^(KOMPUTER_|CLAUDE_BIN|AGY_BIN|FAKE_CLAUDE_STATE|ANTHROPIC_)/.test(k)), c.envKeys.join(","));
+  assert.deepEqual(c.mcpTools, { komputer_use: ["system_info"] }, "body tools reach agy through the global bridge entry");
+  assert.deepEqual(f.body.seen.map((s) => s.method).slice(0, 4), ["server/discover", "initialize", "notifications/initialized", "tools/list"]);
+  assert.ok(f.body.seen.every((s) => s.auth === "Bearer body-secret"));
+  assert.equal(f.body.seen.at(-1).session, "body-session-1", "the bridge keeps the MCP session id");
+  assert.equal(c.bridgeFileMode, 0o600);
+  assert.equal(path.dirname(c.bridgeFile), path.join(f.dir, "agy-ws", "mcp"));
+  assert.equal(fs.existsSync(c.bridgeFile), false, "the per-turn target file is removed after the turn");
+  assert.ok(!c.envKeys.some((k) => /^(KOMPUTER_(?!AGY_MCP_FILE$)|CLAUDE_BIN|AGY_BIN|FAKE_CLAUDE_STATE|ANTHROPIC_)/.test(k)), c.envKeys.join(","));
   assert.ok(c.envKeys.includes("FAKE_AGY_STATE"));
+  const entry = f.globalMcp().komputer_use;
+  assert.deepEqual(entry, { args: [BRIDGE, "komputer_use"], command: process.execPath, disabled: false });
+  assert.doesNotMatch(JSON.stringify(f.globalMcp()), /body-secret|127\.0\.0\.1/, "the global agy config holds no URLs or tokens");
   const conversation = r.headers.get("x-komputer-backend-session");
   assert.equal(r.headers.get("x-komputer-backend"), "antigravity");
   assert.equal(r.headers.get("x-komputer-claude-session"), null);
@@ -133,7 +171,8 @@ test("agy: attachments, task mode, permissions, extra args and effort handling",
   let c = f.agyCalls().at(-1);
   assert.deepEqual(c.args, [...BASE, "--dangerously-skip-permissions", "--model", "gemini-3.8-flash", "--add-dir", "/nonexistent-test-dir"]);
   assert.equal(c.cwd, fs.realpathSync(path.join(f.dir, "agy-ws", "plain")));
-  assert.equal(c.mcp, null, "background tasks get no MCP servers");
+  assert.equal(c.bridgeFile, null);
+  assert.deepEqual(c.mcpTools, { komputer_use: [] }, "background tasks get no MCP tools: the bridge has no target");
 
   await chat(f, { model: "komputer-gemini-4-argon", reasoning_effort: "max", messages: [user("x")] });
   assert.deepEqual(f.agyCalls().at(-1).args.slice(5, 9), ["--model", "gemini-4-argon", "--effort", "high"], "efforts above the configured set clamp down");
@@ -144,7 +183,7 @@ test("agy: attachments, task mode, permissions, extra args and effort handling",
   assert.deepEqual(f.agyCalls().at(-1).args.slice(5, 7), ["--effort", "low"]);
 });
 
-test("agy: client tools reach agy through a private workspace MCP config", async (t) => {
+test("agy: client tools reach agy through the bridge, pointed at the run's own MCP server", async (t) => {
   const f = await agyFixture(t);
   const tools = [{ type: "function", function: { name: "lookup", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } }];
   const r = await chat(f, { model: "komputer-agy", tools, messages: [user("CLIENT_TOOL please")] });
@@ -154,8 +193,12 @@ test("agy: client tools reach agy through a private workspace MCP config", async
   assert.deepEqual(JSON.parse(call.function.arguments), { query: "from agy" });
   const c = f.agyCalls().at(-1);
   assert.match(c.cwd, /komputer-tools-[^/]+\/agy$/);
-  assert.match(c.mcp.config.mcpServers.komputer_use.serverUrl, /^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
-  assert.equal(c.mcp.mode, 0o600);
+  assert.deepEqual(Object.keys(c.mcpTools), ["komputer_use"]);
+  assert.equal(c.mcpTools.komputer_use.length, 1, "only the client tool, not the body's");
+  assert.notEqual(c.mcpTools.komputer_use[0], "system_info");
+  assert.match(c.bridgeFile, /komputer-tools-[^/]+\/agy-mcp-[0-9a-f-]+\.json$/);
+  assert.equal(c.bridgeFileMode, 0o600);
+  assert.ok(!f.body.seen.length, "a harness turn never touches the body MCP");
   assert.ok(c.noProxy.split(",").includes("127.0.0.1"));
   assert.deepEqual(c.args, BASE, "harness runs are stateless and island-only");
   const done = await chat(f, { model: "komputer-agy", tools, messages: [{ role: "tool", tool_call_id: call.id, content: "forty-two" }] });
@@ -182,4 +225,45 @@ test("agy: a conversation that switches CLIs is reseeded on the new one", async 
   const stored = JSON.parse(fs.readFileSync(path.join(f.dir, "sessions.json"), "utf8")).sessions.find((s) => s.client_key === "switch");
   assert.equal(stored.backend, undefined);
   assert.ok(stored.claude_session_id);
+});
+
+test("agy: KOMPUTER_AGY_MCP_SETUP=off leaves the global config alone and startup says what is missing", async (t) => {
+  const f = await agyFixture(t, { KOMPUTER_AGY_MCP_SETUP: "off" }, {
+    prepare: (dir) => {
+      fs.mkdirSync(path.join(dir, "home", ".gemini", "config"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "home", ".gemini", "config", "mcp_config.json"),
+        JSON.stringify({ mcpServers: { stray: { command: "true", args: [], disabled: false }, parked: { command: "true", disabled: true } } }));
+    },
+  });
+  assert.deepEqual(Object.keys(f.globalMcp()), ["stray", "parked"]);
+  const logs = f.logs();
+  assert.match(logs, /"komputer_use" is not the komputer bridge[^\n]*run: agy mcp add komputer_use -- /);
+  assert.match(logs, /global server "stray" is enabled for every agy turn/);
+  assert.doesNotMatch(logs, /"parked"/);
+  assert.match(logs, /permissions\.allow/);
+});
+
+test("agy: final text without deltas is still streamed, and unknown events are ignored", async (t) => {
+  const f = await agyFixture(t);
+  const r = await chat(f, { model: "komputer-agy", stream: true, messages: [user("NO_DELTAS hi")] });
+  assert.equal(r.status, 200);
+  const text = sse(r.text).map((c) => c.choices?.[0]?.delta?.content || "").join("");
+  assert.match(text, /^agy:<system_instructions>[\s\S]*\n\nNO_DELTAS hi$/);
+  const plain = await chat(f, { model: "komputer-agy", messages: [user("TOOL again")] });
+  assert.match(plain.json().choices[0].message.content, /^checking\n\nagy:<system_instructions>[\s\S]*TOOL again$/, "non-streaming keeps the text of every step, like the stream");
+});
+
+test("agy: non-Gemini models keep the CLI's full effort range; slugs with an effort never get --effort", async (t) => {
+  const f = await agyFixture(t, { KOMPUTER_AGY_MODELS: "komputer-gemini-3.8-flash,komputer-agy-claude-opus-5-5" });
+  let r = await chat(f, { model: "komputer-agy-claude-opus-5-5", reasoning_effort: "xhigh", messages: [user("x")] });
+  assert.equal(r.status, 200, r.text);
+  assert.equal(r.headers.get("x-komputer-backend"), "antigravity");
+  assert.deepEqual(f.agyCalls().at(-1).args.slice(4), ["--model", "claude-opus-5-5", "--effort", "xhigh"]);
+  r = await chat(f, { model: "komputer-gemini-3.8-flash", reasoning_effort: "xhigh", messages: [user("x")] });
+  assert.deepEqual(f.agyCalls().at(-1).args.slice(4), ["--model", "gemini-3.8-flash", "--effort", "high"]);
+  r = await chat(f, { model: "komputer-gemini-3.8-flash-low", reasoning_effort: "high", messages: [user("x")] });
+  assert.equal(r.status, 200, r.text);
+  assert.deepEqual(f.agyCalls().at(-1).args.slice(4), ["--model", "gemini-3.8-flash-low"]);
+  await chat(f, { model: "komputer-agy", messages: [user("### Task: title")] });
+  assert.deepEqual(f.agyCalls().at(-1).args.slice(4), ["--model", "gemini-3.8-flash-low"], "background tasks default to the cheapest Gemini");
 });

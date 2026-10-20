@@ -42,8 +42,9 @@ export function createBackends(env, { workspaceRoot, instanceId, claudeCwd, mcpC
         defaultModel: env.KOMPUTER_AGY_MODEL || "",
         defaultEffort: env.KOMPUTER_AGY_EFFORT || "",
         efforts: list(env.KOMPUTER_AGY_EFFORTS, "low,medium,high"),
-        taskModel: env.KOMPUTER_AGY_TASK_MODEL ?? "",
+        taskModel: env.KOMPUTER_AGY_TASK_MODEL ?? "gemini-3.8-flash-low",
         permissions: (env.KOMPUTER_AGY_PERMISSIONS || "settings").toLowerCase(),
+        mcpSetup: (env.KOMPUTER_AGY_MCP_SETUP || "auto").toLowerCase(),
         extraArgs: splitArgs(env.KOMPUTER_AGY_EXTRA_ARGS),
       }),
     muse: () =>
@@ -66,6 +67,9 @@ export function createBackends(env, { workspaceRoot, instanceId, claudeCwd, mcpC
   if (!fallback) throw new Error("KOMPUTER_DEFAULT_BACKEND must be one of KOMPUTER_BACKENDS");
   if (byName.has("antigravity") && !["settings", "skip"].includes((env.KOMPUTER_AGY_PERMISSIONS || "settings").toLowerCase())) {
     throw new Error("KOMPUTER_AGY_PERMISSIONS must be settings or skip");
+  }
+  if (byName.has("antigravity") && !["auto", "off"].includes((env.KOMPUTER_AGY_MCP_SETUP || "auto").toLowerCase())) {
+    throw new Error("KOMPUTER_AGY_MCP_SETUP must be auto or off");
   }
   const ids = new Set();
   for (const b of backends) {

@@ -4,7 +4,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createBackends } from "../backends/index.mjs";
-import { agyArgs, agyParser, agyUsage } from "../backends/antigravity.mjs";
+import os from "node:os";
+import { spawn } from "node:child_process";
+import { AGY_BRIDGE, agyArgs, agyParser, agyUsage } from "../backends/antigravity.mjs";
 import { museMcpOverrides, museParser } from "../backends/muse.mjs";
 import { buildChildEnv, buildClaudeEnv, AGY_KEEP, MUSE_KEEP } from "../claude-env.mjs";
 
@@ -95,9 +97,19 @@ test("agy parser: steps, tool names, usage, lost conversations and the real unau
   assert.equal(seen.text, "Hello\n\nDone");
   assert.deepEqual(seen.tools, ["mcp__komputer_use__run_command", "view_file"]);
   assert.equal(parser.activity, true);
-  assert.deepEqual(result, { ok: true, value: { text: "Done", thinking: "", session_id: "c1",
-    usage: { input_tokens: 60, cache_read_input_tokens: 40, output_tokens: 7, reasoning_tokens: 3 } } });
+  assert.deepEqual(result, { ok: true, value: { text: "Hello\n\nDone", thinking: "", session_id: "c1",
+    usage: { input_tokens: 60, cache_read_input_tokens: 40, output_tokens: 7, reasoning_tokens: 3 } } }, "the final-step response is already in the stream");
   assert.equal(agyUsage(null), null);
+
+  const done = (response) => ev({ event: "result", result: { conversation_id: "c2", status: "SUCCESS", response, num_turns: 1 } });
+  const delta = (text) => ev({ event: "step_update", step_index: 1, step_type: "agent_response", text_delta: text });
+  const tail = run(agyParser, { mode: "new" }, [delta("Hello"), ev({ event: "some_future_event", x: 1 }), done("Hello world")]);
+  assert.equal(tail.seen.text, "Hello world", "text the deltas missed is streamed at the end");
+  assert.equal(tail.result.value.text, "Hello world");
+  const none = run(agyParser, { mode: "new" }, [done("only the result")]);
+  assert.equal(none.seen.text, "only the result");
+  const differs = run(agyParser, { mode: "new" }, [delta("draft"), done("final answer")]);
+  assert.equal(differs.result.value.text, "final answer", "an unrelated final response wins for non-streaming clients");
 
   const lost = run(agyParser, { mode: "resume", id: "old" }, [ev({ event: "init", conversation_id: "fresh" })]);
   assert.equal(lost.seen.bail.type, "session_not_found");
@@ -152,4 +164,42 @@ test("child env allowlists are per backend", () => {
   assert.deepEqual(keys(buildClaudeEnv(source, "/w/c")), ["ANTHROPIC_API_KEY", "CI", "CLAUDE_CODE_OAUTH_TOKEN", "GIT_CEILING_DIRECTORIES", "HOME", "PATH", "XDG_CONFIG_HOME"]);
   assert.deepEqual(keys(buildChildEnv(source, "/w/a", AGY_KEEP)), ["CI", "GEMINI_API_KEY", "GIT_CEILING_DIRECTORIES", "GOOGLE_APPLICATION_CREDENTIALS", "HOME", "PATH", "XDG_CONFIG_HOME"]);
   assert.deepEqual(keys(buildChildEnv(source, "/w/m", MUSE_KEEP)), ["CI", "GIT_CEILING_DIRECTORIES", "HOME", "META_API_KEY", "PATH", "XDG_CONFIG_HOME"]);
+});
+
+/** Talks stdio MCP to the agy bridge the way agy does. */
+async function bridgeSession(target) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agy-bridge-test-"));
+  const file = path.join(dir, "t.json");
+  fs.writeFileSync(file, JSON.stringify({ servers: target ? { komputer_use: target } : {} }));
+  const child = spawn(process.execPath, [AGY_BRIDGE, "komputer_use"], { env: { ...process.env, KOMPUTER_AGY_MCP_FILE: file }, stdio: ["pipe", "pipe", "inherit"] });
+  let buf = "";
+  const replies = [];
+  child.stdout.on("data", (d) => {
+    buf += d;
+    for (let i; (i = buf.indexOf("\n")) >= 0; buf = buf.slice(i + 1)) replies.push(JSON.parse(buf.slice(0, i)));
+  });
+  const ask = async (id, method, params = {}) => {
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+    for (let n = 0; n < 200 && !replies.some((r) => r.id === id); n++) await new Promise((r) => setTimeout(r, 10));
+    return replies.find((r) => r.id === id);
+  };
+  return { ask, close: () => { child.stdin.end(); fs.rmSync(dir, { recursive: true, force: true }); } };
+}
+
+test("agy MCP bridge: stdio targets are proxied, unreachable HTTP targets fail per request, no target means no tools", async () => {
+  const stdio = await bridgeSession({ command: process.execPath, args: [AGY_BRIDGE, "komputer_use"], env: {} });
+  assert.equal((await stdio.ask(1, "server/discover")).error.code, -32601);
+  assert.equal((await stdio.ask(2, "initialize", { protocolVersion: "2025-11-25" })).result.protocolVersion, "2025-11-25");
+  assert.deepEqual((await stdio.ask(3, "tools/list")).result, { tools: [] }, "the proxied child got no target file, so it is the empty server");
+  stdio.close();
+
+  const down = await bridgeSession({ url: "http://127.0.0.1:9/mcp", headers: {} });
+  const r = await down.ask(1, "initialize", { protocolVersion: "2025-11-25" });
+  assert.equal(r.error.code, -32603);
+  assert.match(r.error.message, /komputer MCP bridge/);
+  down.close();
+
+  const empty = await bridgeSession(null);
+  assert.deepEqual((await empty.ask(1, "tools/list")).result, { tools: [] });
+  empty.close();
 });

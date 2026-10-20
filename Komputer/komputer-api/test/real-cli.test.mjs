@@ -2,7 +2,7 @@
 //   KOMPUTER_TEST_REAL_MUSE=/path/to/muse [KOMPUTER_TEST_REAL_MUSE_HOME=/isolated/home]
 //     uses muse's offline echo provider, so no account or network is needed.
 //   KOMPUTER_TEST_REAL_AGY=/path/to/agy [KOMPUTER_TEST_REAL_AGY_HOME=/isolated/home]
-//     expects a home that is NOT signed in and checks the auth failure path.
+//     uses a fresh signed-out HOME unless one is given; checks MCP and the auth failure path.
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -73,15 +73,25 @@ test("real muse (echo provider): session create and resume, body MCP startup, ha
   assert.equal(down.json().error.type, "body_unavailable");
 });
 
-test("real agy (signed out): authentication failure becomes 502 upstream_auth_error", { skip: !AGY && "set KOMPUTER_TEST_REAL_AGY", timeout: 120_000 }, async (t) => {
+// agy starts its global MCP servers before it checks the sign-in, so even a
+// signed-out run proves the bridge path: `agy mcp add` registration, env
+// inheritance into the stdio bridge, and the Body MCP handshake with its token.
+test("real agy (signed out): bridge registration and Body MCP handshake, then 502 upstream_auth_error", { skip: !AGY && "set KOMPUTER_TEST_REAL_AGY", timeout: 120_000 }, async (t) => {
+  const body = await bodyServer(t);
   const f = await apiFixture(t, {
     env: { KOMPUTER_SKIP_TUNNEL: "1", KOMPUTER_BACKENDS: "antigravity", AGY_BIN: AGY, ...homeEnv(process.env.KOMPUTER_TEST_REAL_AGY_HOME) },
-    prepare: (dir) => fs.writeFileSync(path.join(dir, ".mcp.json"), JSON.stringify({ mcpServers: {} })),
+    prepare: (dir) => fs.writeFileSync(path.join(dir, ".mcp.json"),
+      JSON.stringify({ mcpServers: { komputer_use: { type: "http", url: body.url, headers: { Authorization: "Bearer body-token" } } } })),
   });
   await f.ready();
+  const home = process.env.KOMPUTER_TEST_REAL_AGY_HOME || path.join(f.dir, "home");
+  const entry = JSON.parse(fs.readFileSync(path.join(home, ".gemini", "config", "mcp_config.json"), "utf8")).mcpServers.komputer_use;
+  assert.equal(entry.command, process.execPath, "startup registered the bridge with the real `agy mcp add`");
+  assert.match(entry.args[0], /agy-mcp-bridge\.mjs$/);
   const r = await f.request("/v1/chat/completions", { model: "komputer-gemini-4-argon", reasoning_effort: "high", messages: [{ role: "user", content: "hi" }] },
     { signal: AbortSignal.timeout(90_000) });
   assert.equal(r.status, 502, r.text);
   assert.equal(r.json().error.type, "upstream_auth_error");
+  assert.ok(body.seen.some((s) => s.method === "tools/list" && s.auth === "Bearer body-token"), `agy listed body tools through the bridge: ${JSON.stringify(body.seen)}`);
   assert.match(f.logs(), /permissions\.allow/, "startup warns that MCP tools need an allow rule");
 });

@@ -10,8 +10,8 @@
 - 完成真实公网 HTTPS、官方 Claude Code 和本地工具的整套测试。目前接口 CI 使用替身 CLI。
 - 用登录后的 agy 和 muse 跑完整回合，核对 [CLI 后端](docs/backends.md) 里标为假设的部分：
   工具步骤字段、MCP 工具调用和权限、用量字段。拿到 agy 的真实输出样例后放进 `test/fixtures/`。
-- agy 没有关闭内置工具的参数，目前依赖它的权限设置。验证 `disabledTools` / `excludeTools` 和 deny 规则的效果，
-  再决定是否在文档里给出推荐配置。
+- agy 没有关闭内置工具的参数，真实记录显示 `always-proceed` 下 `run_command` 会直接在远端执行。服务现在只能在它运行后
+  结束回合。需要验证 `disabledTools` / `excludeTools` 和 deny 规则能否事先阻止，再给出推荐配置。
 - agy 每次调用要 11–17 秒、约 6.6k token 的基础提示。可以研究为每个对话保留一个通过 stdin 多轮的 agy 进程，
   但要先解决空闲进程的内存（约 240MB）和超时回收。
 - Responses 的回复存储只按数量淘汰，还没有按时间清理。

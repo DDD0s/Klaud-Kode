@@ -78,9 +78,24 @@ Claude 用 `--tools ""` 关闭内置工具，这一点没有变化。另外两�
 不希望服务改动时设 `KOMPUTER_AGY_MCP_SETUP=off`，启动日志会给出需要手动执行的命令。
 全局配置中其他已启用的 MCP 服务会进入每个 agy 回合并在远端运行，启动时会提醒，可用 `agy mcp disable <名称>` 关闭。
 
-agy 没有关闭内置工具的参数（`init` 事件列出约 60 个内置工具），靠它自己的权限设置限制工具。
-headless 运行时，没有被允许的工具调用会被拒绝，不会弹出确认。
-因此要在远端账号的 `~/.gemini/antigravity-cli/settings.json` 中允许本服务的 MCP：
+agy 没有关闭内置工具的参数。`init` 事件列出它自己的 60 个工具（`run_command`、`view_file`、`list_dir`、
+`write_to_file`、`browser_*`、`search_web`、子代理等），MCP 工具不单独列出，而是通过其中的 `call_mcp_tool` 调用。
+已登录的真实记录里 `init.permission_mode` 是 `always-proceed`，`run_command` 直接在 agy 所在的主机上执行了 `ls -la`，
+没有任何确认。所以不能假设 headless 模式会拒绝内置工具。
+
+服务的处理方式：
+
+- **内置工具保护（`KOMPUTER_AGY_BUILTIN_GUARD`，默认 `stop`）。** island 回合（harness 回合、后台任务，
+  以及没有设 `KOMPUTER_BUILTIN_TOOLS` 的 Body 回合）里，只要 agy 的内置工具在服务主机上运行，
+  服务就立即结束 agy 进程，返回 `502 builtin_tool_blocked`；流已经开始时在流内报告。
+  `permission_mode` 为 `always-proceed` 时在工具步骤开始（ACTIVE）就结束，否则等它确实完成（DONE）。
+  这只能阻止后续步骤，**已经开始的那条命令可能已经执行完**，客户端会被提示先检查再重试。
+  `call_mcp_tool` 以及不接触主机和网络的 `ask_question`、`ask_permission`、`ask_custom_permission`、`list_permissions`、
+  `finish`、`wait`、`wait_5_seconds`、`manage_task` 不受影响。`warn` 只记录日志，`off` 关闭。
+- **启动和运行提醒。** agy 报告 `always-proceed` 而服务没有传 `--dangerously-skip-permissions` 时，日志提醒一次。
+
+真正不让内置工具运行，要靠 agy 自己的权限设置。至少在远端账号的 `~/.gemini/antigravity-cli/settings.json`
+中允许本服务的 MCP：
 
 ```json
 { "permissions": { "allow": ["mcp(komputer_use/*)"] } }
@@ -88,7 +103,7 @@ headless 运行时，没有被允许的工具调用会被拒绝，不会弹出�
 
 服务启动时检查这条规则，缺少时在日志里提醒。程序里还能找到 `disabledTools`、`excludeTools` 等设置名，
 但它们的效果没有验证，服务不会写入，也不依赖它们。`KOMPUTER_AGY_PERMISSIONS=skip` 会传
-`--dangerously-skip-permissions`，这时 agy 的 shell 和文件工具也会在远端直接运行，只在你确实需要时使用。
+`--dangerously-skip-permissions`，这时 agy 的 shell 和文件工具在远端直接运行；island 回合仍受上面的保护。
 agy 不接受图片和 PDF 附件，带附件的请求返回 400。
 
 每次调用 agy 有约 6.6k 输入 token 的基础提示开销，单次 11–17 秒，进程约 240MB 内存。
@@ -107,24 +122,29 @@ MCP 起不来时回合失败，不会在没有工具的情况下继续。URL 和
 
 ## 哪些验证过，哪些是假设
 
-替身 CLI（`test/fake-agy.mjs`、`test/fake-muse.mjs`）复现了下表“已验证”一栏的输出格式。
+替身 CLI（`test/fake-agy.mjs`、`test/fake-muse.mjs`）复现了下表中已验证的输出格式。
 `test/fixtures/` 里是真实 CLI 的输出记录，解析器单元测试直接读取它们。
 设置 `KOMPUTER_TEST_REAL_AGY` / `KOMPUTER_TEST_REAL_MUSE`（可选 `_HOME`）可以对本机真实 CLI 跑冒烟测试，默认跳过。
 
 ### Antigravity（agy 1.4.3）
 
-“已登录验证”来自项目维护者在已登录的真实主机上的结果；“未登录验证”是在没有登录的环境里对同一版本程序的检查，
-包括 `real-cli.test.mjs` 的冒烟测试。
+“已登录验证”来自项目维护者在已登录的真实主机上的结果，其中运行 `ls -la` 的完整 stream-json 记录（已去掉账号名和会话 ID）
+保存在 `test/fixtures/agy-1.4.3-signed-in-run-command.jsonl`，解析器单元测试直接读取它，替身 agy 也按它的结构输出。
+“未登录验证”是在没有登录的环境里对同一版本程序的检查，包括 `real-cli.test.mjs` 的冒烟测试。
 
 | 已登录验证 | 未登录验证 | 假设，可通过配置调整 |
 | --- | --- | --- |
-| print 模式和 `--output-format stream-json`：`init`（列出内置工具）、`step_update`（用户输入、回复文本增量、带 `tool_name` 和 ACTIVE/DONE 的工具步骤）、最终 `result`（status、response、用量） | 参数 `--input-format stream-json`、`--model`、`--effort`、`--conversation`、`--dangerously-skip-permissions`、`--mode` 存在 | 文本增量和工具步骤的完整字段名（没有拿到样例）；解析器忽略未知事件，并用 `result.response` 补齐或核对流式文本 |
-| thinking 只以 token 数出现，没有文本 | 未登录时的 `result` 行、stderr 中的 `authentication required` 和退出码 1，映射为鉴权错误 | 调用 MCP 工具的步骤名为 `call_mcp_tool`，参数中带 `ServerName`、`ToolName` |
-| 模型：`gemini-4-argon`、`gemini-3.8-flash`，另有 `claude-opus-5-5`、`claude-sonnet-5-5`、`gpt-oss-120b-medium` | MCP 只读全局 `~/.gemini/config/mcp_config.json` 和插件；工作目录下的 `.agents/mcp_config.json` 不会读取 | 内置工具在默认权限下确实被拒绝；`permissions.allow` / `deny` 与 skip 参数同时存在时的优先级 |
-| 强度：模型名后缀或 `--effort low\|medium\|high`，两者同时用会被拒绝；Gemini 拒绝 `xhigh`/`max` | `agy mcp add` 写出的格式（HTTP 为 `serverUrl` + `headers`，stdio 为 `command` + `args` + `env`），并会重新启用同名条目 | `disabledTools`、`excludeTools` 设置的效果 |
-| `--conversation <id>` 续接；同一进程内通过 stdin 多轮可用 | stdio MCP 服务继承 agy 的环境变量和工作目录；会话开始时先发 `server/discover`，失败后回退到 `initialize`（2025-11-25），接受 2025-06-18 的回复并调用 `tools/list` | 用量字段的含义（`input_tokens` 含缓存读取，`thinking_tokens` 记为 reasoning tokens） |
-| 基础提示约 6.6k 输入 token，单次 11–17 秒，约 240MB 内存 | 通过转接器，真实 agy 用 Bearer 头完成 Body MCP 握手并列出工具 | |
-| | `--conversation` 指向不存在的会话时，agy 打印警告后新开会话；服务把它视为会话丢失 | |
+| print 模式和 `--output-format stream-json` | 参数 `--input-format stream-json`、`--model`、`--effort`、`--conversation`、`--dangerously-skip-permissions`、`--mode` 存在 | 解析器仍接受旧的扁平 `step_update` 结构并忽略未知事件，以防版本变化 |
+| `init`：`conversation_id`，`init.cwd`、`init.permission_mode`（记录中为 `always-proceed`）和 60 个内置工具名；MCP 经 `call_mcp_tool` | 未登录时的 `result` 行、stderr 中的 `authentication required` 和退出码 1，映射为鉴权错误 | 不传 `--dangerously-skip-permissions` 时 `permission_mode` 的值，以及内置工具是否会被拒绝；`permissions.allow` / `deny` 与 skip 参数的优先级 |
+| `step_update` 的字段都在 `step_update` 对象里：`step_index`、`state`（ACTIVE/DONE）、`step_type`（`user_input`、`agent_response`、`tool`） | MCP 只读全局 `~/.gemini/config/mcp_config.json` 和插件；工作目录下的 `.agents/mcp_config.json` 不会读取 | `call_mcp_tool` 的参数名 `ServerName`、`ToolName`（记录里只有内置工具；解析器也接受 `server_name` / `tool_name` 等写法） |
+| 文本增量是 `agent_response` 步骤的 `text_delta`，DONE 步骤也可能带最后一段；调用工具前的 `agent_response` 步骤可以没有文本 | `agy mcp add` 写出的格式（HTTP 为 `serverUrl` + `headers`，stdio 为 `command` + `args` + `env`），并会重新启用同名条目 | `disabledTools`、`excludeTools` 设置的效果 |
+| 工具步骤有 `tool_name` 和 `tool_info.{name, parameters, output}`（如 `run_command` 的 `CommandLine`） | stdio MCP 服务继承 agy 的环境变量和工作目录；会话开始时先发 `server/discover`，失败后回退到 `initialize`（2025-11-25），接受 2025-06-18 的回复并调用 `tools/list` | 上面列为“不接触主机和网络”的内置工具确实如此 |
+| `result`：`status`、`response`（等于全部文本增量）、`duration_seconds`、`num_turns`、`usage`；每个 DONE 的 `agent_response` 步骤也带自己的 `usage` | 通过转接器，真实 agy 用 Bearer 头完成 Body MCP 握手并列出工具 | |
+| 用量：`input_tokens` 不含缓存读取，`total_tokens` = 输入 + 输出，`cache_read_tokens` 单独计；thinking 只有 `thinking_tokens`，没有文本 | `--conversation` 指向不存在的会话时，agy 打印警告后新开会话；服务把它视为会话丢失 | |
+| 模型：`gemini-4-argon`、`gemini-3.8-flash`，另有 `claude-opus-5-5`、`claude-sonnet-5-5`、`gpt-oss-120b-medium` | | |
+| 强度：模型名后缀或 `--effort low\|medium\|high`，两者同时用会被拒绝；Gemini 拒绝 `xhigh`/`max` | | |
+| `--conversation <id>` 续接；同一进程内通过 stdin 多轮可用 | | |
+| 基础提示约 6.6k 输入 token（记录中第一步 6611），单次 11–17 秒，约 240MB 内存 | | |
 
 ### Muse Code（muse 1.4.11，echo provider）
 

@@ -184,6 +184,7 @@ Claude Code 自身的提示、用户配置、memory 或 skills 仍可能带入�
 | `KOMPUTER_AGY_EFFORTS` | `low,medium,high` | Gemini 模型允许的强度，更高的值降档 |
 | `KOMPUTER_AGY_PERMISSIONS` | `settings` | `settings` 使用 agy 自己的权限设置；`skip` 传 `--dangerously-skip-permissions` |
 | `KOMPUTER_AGY_MCP_SETUP` | `auto` | `auto` 启动时用 `agy mcp add` 在 agy 全局配置中注册 MCP 转接器；`off` 只检查并提示 |
+| `KOMPUTER_AGY_BUILTIN_GUARD` | `stop` | island 回合中 agy 内置工具在服务主机上运行时：`stop` 结束回合并返回 502，`warn` 只记日志，`off` 不检查 |
 | `KOMPUTER_AGY_CWD` / `KOMPUTER_MUSE_CWD` | `~/.komputer/workspaces/<实例摘要>-agy` / `-muse` | agy、muse 的工作目录 |
 | `KOMPUTER_MUSE_MODEL_ID` / `KOMPUTER_MUSE_MODELS` | `komputer-muse` / 空 | Muse 的模型名 |
 | `KOMPUTER_MUSE_MODEL` / `KOMPUTER_MUSE_EFFORT` / `KOMPUTER_MUSE_TASK_MODEL` | 空 | Muse 的默认模型、强度和后台任务模型 |

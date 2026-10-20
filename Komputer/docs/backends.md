@@ -24,6 +24,10 @@ Claude 的参数、stdin 和子进程环境由 `test/claude-regression.test.mjs`
 3. Claude 认识的名称和别名。
 4. 都不匹配时用 `KOMPUTER_DEFAULT_BACKEND`，默认是列表里第一个。
 
+agy 也能使用非 Gemini 模型。为了不和 Claude 后端的名称冲突，用 `komputer-agy-<模型>` 的形式，
+例如 `KOMPUTER_AGY_MODELS=komputer-gemini-4-argon,komputer-gemini-3.8-flash,komputer-agy-claude-opus-5-5`，
+请求 `komputer-agy-claude-opus-5-5` 时传给 agy 的是 `--model claude-opus-5-5`。
+
 `/v1/models` 列出所有已开启后端的模型名，两个后端不能公布同一个名称。
 响应头 `X-Komputer-Backend` 显示实际使用的后端，`X-Komputer-Backend-Session` 是该 CLI 的会话 ID，只用于调试。
 
@@ -49,15 +53,32 @@ agy 和 muse 没有单独的系统提示参数，系统提示放在 `<system_ins
 三个后端都读取 `reasoning_effort`、`effort`、`output_config.effort`、Responses 的
 `reasoning.effort`，以及换算后的 `thinking.budget_tokens`。
 
-- Antigravity 默认只接受 `low`、`medium`、`high`（`KOMPUTER_AGY_EFFORTS`），更高的值降到列表里最高一档，
-  `minimal`/`none` 按 `low` 处理。模型名已带 `-low` 这类后缀时不再传 `--effort`。
+- Antigravity 有两种写法：模型名带后缀（`gemini-3.8-flash-low`），或基础模型名加 `--effort`。
+  两者同时出现会被 agy 拒绝，所以模型名已带后缀时不再传 `--effort`。
+  Gemini 模型不接受 `xhigh`、`max`，默认降到 `KOMPUTER_AGY_EFFORTS`（`low,medium,high`）中最高一档；
+  未指定模型时也按 Gemini 处理。其他经 agy 使用的模型（如 `claude-opus-5-5`）保留 CLI 的完整范围。
+  `minimal`/`none` 按 `low` 处理。
 - Muse 原样传给 `--reasoning-effort`，只接受它列出的取值。
 
 ## 工具和隔离
 
 Claude 用 `--tools ""` 关闭内置工具，这一点没有变化。另外两个 CLI 的做法如下。
 
-**Antigravity。** agy 没有关闭内置工具的参数，靠它自己的权限设置限制工具。
+**Antigravity。** agy 只从全局的 `~/.gemini/config/mcp_config.json`（以及插件）读取 MCP，
+没有工作目录级或单个进程级的配置；它启动 stdio MCP 服务时会沿用自己的环境变量和工作目录。
+所以服务启动时用真实的 `agy mcp add` 为每个 MCP 名称（默认 `komputer_use`）注册一个 stdio 转接器
+[agy-mcp-bridge.mjs](../komputer-api/backends/agy-mcp-bridge.mjs)，全局配置里只有 node 和脚本路径，没有地址或 token。
+每个 agy 回合把这次的目标写进一个 0600 文件，通过环境变量 `KOMPUTER_AGY_MCP_FILE` 交给转接器：
+
+- Body 模式：指向 `KOMPUTER_MCP_CONFIG` 里的服务（HTTP 或 stdio），文件放在 agy 工作区之外，回合结束后删除。
+- harness 模式：只指向本回合的客户端工具 MCP，不会看到 Body。
+- 后台任务，以及手动运行的 agy：没有目标，转接器是一个没有工具的 MCP 服务。
+
+这会改动运行服务的系统用户的 agy 全局配置，只增改上述名称，不动其他条目；`agy mcp add` 也会重新启用被禁用的同名条目。
+不希望服务改动时设 `KOMPUTER_AGY_MCP_SETUP=off`，启动日志会给出需要手动执行的命令。
+全局配置中其他已启用的 MCP 服务会进入每个 agy 回合并在远端运行，启动时会提醒，可用 `agy mcp disable <名称>` 关闭。
+
+agy 没有关闭内置工具的参数（`init` 事件列出约 60 个内置工具），靠它自己的权限设置限制工具。
 headless 运行时，没有被允许的工具调用会被拒绝，不会弹出确认。
 因此要在远端账号的 `~/.gemini/antigravity-cli/settings.json` 中允许本服务的 MCP：
 
@@ -65,12 +86,15 @@ headless 运行时，没有被允许的工具调用会被拒绝，不会弹出�
 { "permissions": { "allow": ["mcp(komputer_use/*)"] } }
 ```
 
-服务启动时检查这条规则，缺少时在日志里提醒。`KOMPUTER_AGY_PERMISSIONS=skip` 会传
+服务启动时检查这条规则，缺少时在日志里提醒。程序里还能找到 `disabledTools`、`excludeTools` 等设置名，
+但它们的效果没有验证，服务不会写入，也不依赖它们。`KOMPUTER_AGY_PERMISSIONS=skip` 会传
 `--dangerously-skip-permissions`，这时 agy 的 shell 和文件工具也会在远端直接运行，只在你确实需要时使用。
-
-Body 模式的 MCP 配置从 `KOMPUTER_MCP_CONFIG` 转换为工作目录下的 `.agents/mcp_config.json`（权限 0600）；
-harness 模式每个回合使用独立目录，只写当前回合的客户端工具 MCP。
 agy 不接受图片和 PDF 附件，带附件的请求返回 400。
+
+每次调用 agy 有约 6.6k 输入 token 的基础提示开销，单次 11–17 秒，进程约 240MB 内存。
+`KOMPUTER_MAX_IN_FLIGHT` 按内存设置；后台任务（`### Task:` 标题等）默认用 `gemini-3.8-flash-low`
+（`KOMPUTER_AGY_TASK_MODEL`）。agy 支持在一个进程里通过 stdin 连续多轮，服务目前每个回合启动一个进程并用
+`--conversation` 续接。
 
 **Muse。** Body 和 harness 模式都通过 `-c mcp_servers.<名称>=...` 传入 MCP，并设为 `required`；
 MCP 起不来时回合失败，不会在没有工具的情况下继续。URL 和请求头通过 `${变量}` 从子进程环境读取，
@@ -89,14 +113,18 @@ MCP 起不来时回合失败，不会在没有工具的情况下继续。URL 和
 
 ### Antigravity（agy 1.4.3）
 
-| 已对真实 CLI 验证 | 假设，可通过配置调整 |
-| --- | --- |
-| `--input-format stream-json --output-format stream-json`、`--model`、`--effort`、`--conversation`、`--dangerously-skip-permissions` 参数存在 | 账号登录后 `--model` 接受的模型名（未登录时 agy 不校验模型）；可用 `KOMPUTER_AGY_MODEL`、`KOMPUTER_AGY_MODELS` 调整 |
-| stdin 用户消息的格式、`init` / `step_update` / `result` 事件结构 | 多个工具步骤之间 `text_delta` 和最终 `response` 的关系；流式回复用增量，非流式回复以 `result.response` 为准，缺失时用增量拼接 |
-| 未登录时的 `result` 行、stderr 中的 `authentication required` 和退出码 1，映射为鉴权错误 | 工作目录下的 `.agents/mcp_config.json` 会被加载（格式与 `agy mcp add` 写出的一致） |
-| `--conversation` 指向不存在的会话时，agy 打印警告后新开会话；服务把它视为会话丢失 | `permissions.allow` / `deny` 与 skip 参数同时存在时的优先级 |
-| | 模型名与 `--effort` 的组合是否都被接受；可用 `KOMPUTER_AGY_EFFORTS` 收窄 |
-| | 用量字段的含义（`thinking` 记为 reasoning tokens） |
+“已登录验证”来自项目维护者在已登录的真实主机上的结果；“未登录验证”是在没有登录的环境里对同一版本程序的检查，
+包括 `real-cli.test.mjs` 的冒烟测试。
+
+| 已登录验证 | 未登录验证 | 假设，可通过配置调整 |
+| --- | --- | --- |
+| print 模式和 `--output-format stream-json`：`init`（列出内置工具）、`step_update`（用户输入、回复文本增量、带 `tool_name` 和 ACTIVE/DONE 的工具步骤）、最终 `result`（status、response、用量） | 参数 `--input-format stream-json`、`--model`、`--effort`、`--conversation`、`--dangerously-skip-permissions`、`--mode` 存在 | 文本增量和工具步骤的完整字段名（没有拿到样例）；解析器忽略未知事件，并用 `result.response` 补齐或核对流式文本 |
+| thinking 只以 token 数出现，没有文本 | 未登录时的 `result` 行、stderr 中的 `authentication required` 和退出码 1，映射为鉴权错误 | 调用 MCP 工具的步骤名为 `call_mcp_tool`，参数中带 `ServerName`、`ToolName` |
+| 模型：`gemini-4-argon`、`gemini-3.8-flash`，另有 `claude-opus-5-5`、`claude-sonnet-5-5`、`gpt-oss-120b-medium` | MCP 只读全局 `~/.gemini/config/mcp_config.json` 和插件；工作目录下的 `.agents/mcp_config.json` 不会读取 | 内置工具在默认权限下确实被拒绝；`permissions.allow` / `deny` 与 skip 参数同时存在时的优先级 |
+| 强度：模型名后缀或 `--effort low\|medium\|high`，两者同时用会被拒绝；Gemini 拒绝 `xhigh`/`max` | `agy mcp add` 写出的格式（HTTP 为 `serverUrl` + `headers`，stdio 为 `command` + `args` + `env`），并会重新启用同名条目 | `disabledTools`、`excludeTools` 设置的效果 |
+| `--conversation <id>` 续接；同一进程内通过 stdin 多轮可用 | stdio MCP 服务继承 agy 的环境变量和工作目录；会话开始时先发 `server/discover`，失败后回退到 `initialize`（2025-11-25），接受 2025-06-18 的回复并调用 `tools/list` | 用量字段的含义（`input_tokens` 含缓存读取，`thinking_tokens` 记为 reasoning tokens） |
+| 基础提示约 6.6k 输入 token，单次 11–17 秒，约 240MB 内存 | 通过转接器，真实 agy 用 Bearer 头完成 Body MCP 握手并列出工具 | |
+| | `--conversation` 指向不存在的会话时，agy 打印警告后新开会话；服务把它视为会话丢失 | |
 
 ### Muse Code（muse 1.4.11，echo provider）
 
@@ -105,9 +133,9 @@ MCP 起不来时回合失败，不会在没有工具的情况下继续。URL 和
 | `exec --json` 的 JSONL 结构，`run.output.delta` 文本、`run.usage`、`run.terminal.completed` / `failed` | 真实模型调用工具时的 task 名称；解析器依次读取 `tool_name`、`name`、`task_kind` |
 | `--session-id` 新建时第一条会话记录序号为 1，续接时为 2；续接却得到 1 视为会话丢失 | `--disable-approval` 下 MCP 工具不再请求确认 |
 | 换工作目录续接时的拒绝信息 | 用量字段在真实模型下的含义 |
-| 没有凭据时只在 stderr 报错，映射为鉴权错误 | 两个 CLI 都不输出 thinking 文本，所以 `reasoning_content` 为空 |
+| 没有凭据时只在 stderr 报错，映射为鉴权错误 | muse 不输出 thinking 文本，所以 `reasoning_content` 为空 |
 | `required` MCP 起不来时返回 `run.terminal.failed`，映射为 `body_unavailable` | |
 | `-c mcp_servers` 中 url 和 headers 的 `${变量}` 替换（本地 MCP 服务确实收到了替换后的 Bearer） | |
 
-真实账号下的完整回合（登录后的模型调用、真实工具调用、续接）还没有跑过。
+本服务还没有在已登录的 agy 或 muse 上跑过完整回合（真实工具调用、续接）。
 上线前按 [安装步骤](../SETUP.md) 的方法，先让模型运行 `hostname` 并核对工具记录。

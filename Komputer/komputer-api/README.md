@@ -179,9 +179,11 @@ Claude Code 自身的提示、用户配置、memory 或 skills 仍可能带入�
 | `KOMPUTER_DEFAULT_BACKEND` | 列表第一个 | 模型名不匹配任何后端时使用 |
 | `CLAUDE_BIN` / `AGY_BIN` / `MUSE_BIN` | `claude` / `agy` / `muse` | 各 CLI 的可执行文件 |
 | `KOMPUTER_AGY_MODEL_ID` / `KOMPUTER_AGY_MODELS` | `komputer-agy` / `komputer-gemini-4-argon,komputer-gemini-3.8-flash` | Antigravity 的模型名 |
-| `KOMPUTER_AGY_MODEL` / `KOMPUTER_AGY_EFFORT` / `KOMPUTER_AGY_TASK_MODEL` | 空 | Antigravity 的默认模型、强度和后台任务模型 |
-| `KOMPUTER_AGY_EFFORTS` | `low,medium,high` | 允许传给 agy 的强度，更高的值降档 |
+| `KOMPUTER_AGY_MODEL` / `KOMPUTER_AGY_EFFORT` | 空 | Antigravity 的默认模型和强度 |
+| `KOMPUTER_AGY_TASK_MODEL` | `gemini-3.8-flash-low` | Antigravity 的后台任务模型 |
+| `KOMPUTER_AGY_EFFORTS` | `low,medium,high` | Gemini 模型允许的强度，更高的值降档 |
 | `KOMPUTER_AGY_PERMISSIONS` | `settings` | `settings` 使用 agy 自己的权限设置；`skip` 传 `--dangerously-skip-permissions` |
+| `KOMPUTER_AGY_MCP_SETUP` | `auto` | `auto` 启动时用 `agy mcp add` 在 agy 全局配置中注册 MCP 转接器；`off` 只检查并提示 |
 | `KOMPUTER_AGY_CWD` / `KOMPUTER_MUSE_CWD` | `~/.komputer/workspaces/<实例摘要>-agy` / `-muse` | agy、muse 的工作目录 |
 | `KOMPUTER_MUSE_MODEL_ID` / `KOMPUTER_MUSE_MODELS` | `komputer-muse` / 空 | Muse 的模型名 |
 | `KOMPUTER_MUSE_MODEL` / `KOMPUTER_MUSE_EFFORT` / `KOMPUTER_MUSE_TASK_MODEL` | 空 | Muse 的默认模型、强度和后台任务模型 |

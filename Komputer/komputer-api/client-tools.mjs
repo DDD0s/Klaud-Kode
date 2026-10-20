@@ -354,7 +354,7 @@ export class ClientToolGateway {
     const rpcError = (code, message) => json(res, 200, { jsonrpc: "2.0", id: msg.id, error: { code, message } });
     if (msg.method === "initialize") {
       reply({ protocolVersion: ["2024-11-05", "2025-03-26", "2025-06-18"].includes(msg.params?.protocolVersion) ? msg.params.protocolVersion : "2025-06-18",
-        capabilities: { tools: {} }, serverInfo: { name: "komputer", version: "0.9.0" } }); return;
+        capabilities: { tools: {} }, serverInfo: { name: "komputer", version: "0.10.0" } }); return;
     }
     if (msg.method === "ping") { reply({}); return; }
     if (msg.method === "tools/list") {

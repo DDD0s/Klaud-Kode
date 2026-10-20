@@ -1,6 +1,6 @@
 {
   "name": "kloud-kode-api",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "private": true,
   "description": "Kloud Kode by Kosmolopic — 用官方 Claude Code 提供 OpenAI / Anthropic 兼容 API",
   "type": "module",

@@ -6,7 +6,7 @@
 
 | 目录 | 做什么 | 运行位置 |
 | --- | --- | --- |
-| `komputer-api/` | 接收本地客户端的请求，调用官方 Claude Code | 远端主机 |
+| `komputer-api/` | 接收本地客户端的请求，调用官方 Claude Code（可选 Antigravity、Muse Code） | 远端主机 |
 | `kloud-kode-body/` | 文件、命令、进程和本机 MCP 工具 | 要操作的电脑；客户端自带工具时不必安装 |
 | `komputer/` | Body 用的 SSH 隧道脚本 | 远端主机；仅 Body 模式需要 |
 | `komputer-session/` | Body 模式的 MCP 配置模板 | 复制到仓库外再填写 token |
@@ -26,6 +26,6 @@
 ```
 
 PowerShell 下分别进入两个目录，运行 `npm ci --ignore-scripts` 和 `npm test`。
-测试会启动本机测试进程；API 使用替身 Claude CLI，不发真实模型请求。
+测试会启动本机测试进程；API 使用替身 Claude、agy 和 muse CLI，不发真实模型请求。
 
 开发前请看 [DEVELOPING.md](DEVELOPING.md)。

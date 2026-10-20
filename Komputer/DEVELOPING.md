@@ -20,7 +20,9 @@ SSH 直连 CLI 是可选用法，后台工具隧道则是另外一回事。
 | `komputer-api/server.mjs` | HTTP 接口、CLI 进程、Body 会话和流式回复 |
 | `komputer-api/client-tools.mjs` | 客户端工具定义、MCP 转接、结果续接和重试状态 |
 | `komputer-api/public-http.mjs` | TLS、CORS 和错误 key 限流 |
-| `komputer-api/claude-env.mjs` | Claude 子进程环境变量 |
+| `komputer-api/backends/` | 各 CLI 后端：参数、stdin、输出解析、错误分类和按模型名路由 |
+| `komputer-api/responses.mjs` | Responses API 的请求转换、事件流和回复存储 |
+| `komputer-api/claude-env.mjs` | 各 CLI 子进程的环境变量名单 |
 | `kloud-kode-body/server.mjs` | 本地文件、命令、进程和其他 MCP 服务 |
 | `komputer/tunnel-up.sh` | Body 模式的 SSH 转发 |
 | `komputer-session/` | Body 模式的配置模板 |
@@ -37,6 +39,9 @@ SSH 直连 CLI 是可选用法，后台工具隧道则是另外一回事。
   官方 Claude Code 和 `claude` 命令保持原名。不要恢复已移除的旧名称或别名。
 - Claude 的正常工作目录在仓库外。不要为了省配置把 cwd 改回工程目录。
 - API 调用官方 CLI，不自行读取、复制或转发它的登录文件，也不实现账号池。
+  新后端同样必须启动真实 CLI，不模拟它的协议，也不伪造请求头。
+- Claude 的参数、stdin 和环境由 `test/claude-regression.test.mjs` 固定。改动后端公共代码时不要改这个测试来迁就结果。
+- 新后端要有替身 CLI 测试；能拿到真实 CLI 时，把它的输出记录放进 `test/fixtures/`，并在 [CLI 后端](docs/backends.md) 写明哪些已验证、哪些是假设。
 - 这是单用户服务。新增 key 不会创建独立用户或独立会话空间，不要在文档里暗示多用户隔离。
 - 当前 CLI 跳过交互式权限确认。更改权限行为要单独说明，不能把本地 harness 的确认设置当成 Body 的权限。
 - 公网默认要求 TLS 和强随机 key。不要关闭证书验证或放宽测试来掩盖网络问题。
@@ -54,7 +59,8 @@ SSH 直连 CLI 是可选用法，后台工具隧道则是另外一回事。
 ```
 
 PowerShell 下分别进入两个目录，运行相同的 npm 命令。
-API 测试使用替身 Claude CLI，但 HTTP、MCP、HTTPS 和进程往返是真实的。
+API 测试使用替身 Claude、agy 和 muse CLI，但 HTTP、MCP、HTTPS 和进程往返是真实的。
+本机装有真实 agy 或 muse 时，可设置 `KOMPUTER_TEST_REAL_AGY` / `KOMPUTER_TEST_REAL_MUSE` 为其路径跑冒烟测试，默认跳过。
 Body 测试会启动本机服务和测试命令。不需要真实 Claude 登录，不消耗模型额度。
 
 GitHub Actions 在 Linux 的 Node.js 22、24 上运行完整测试。

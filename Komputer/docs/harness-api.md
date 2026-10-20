@@ -1,4 +1,4 @@
-# 本地 harness 接口（0.9.0）
+# 本地 harness 接口（0.10.0）
 
 日常主线是本地 harness → Komputer API → 远端官方 Claude Code。工具在本地执行，SSH 直连只是备选。
 
@@ -52,7 +52,11 @@ OpenAI 模式可返回 reasoning_content。
 
 ## 范围
 
-支持上述常用工具协议子集，不是所有模型 API 参数的完整替代品。不支持 Responses API、旧 functions/function_call、
+Responses API 的 `function` 工具和 `function_call_output` 走同一套 harness 流程，
+响应头和取消方式相同；接口说明见 [API README](../komputer-api/README.md#responses-api)。
+后端为 Antigravity 或 Muse 时，客户端工具同样通过本回合的临时 MCP 交给对应 CLI，见 [CLI 后端](backends.md)。
+
+支持上述常用工具协议子集，不是所有模型 API 参数的完整替代品。不支持旧 functions/function_call、Responses 内置工具、
 供应商内置 server tools、n > 1、外部 schema 引用或异步 schema 验证。
 工具名为 1–64 个字母、数字、下划线或连字符；支持常见 draft-07 / 2020-12 object schema。
 参数先校验再交付；required/named 选择无法满足会明确报错，不假造成功调用。

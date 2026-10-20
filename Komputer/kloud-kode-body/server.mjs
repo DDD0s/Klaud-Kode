@@ -567,6 +567,20 @@ class NestedMcp {
   }
 }
 
+/** Raw bytes of a file window, base64-encoded, for binary-safe clients such as a remote filesystem. */
+async function readBytes(abs, offset, length, max) {
+  const fh = await fs.open(abs, "r");
+  try {
+    const { size } = await fh.stat();
+    const want = Math.min(length ?? size - offset, max, Math.max(0, size - offset));
+    const buf = Buffer.alloc(Math.max(0, want));
+    const { bytesRead } = want > 0 ? await fh.read(buf, 0, want, offset) : { bytesRead: 0 };
+    return { size, encoding: "base64", byteOffset: offset, byteLength: bytesRead, content: buf.subarray(0, bytesRead).toString("base64") };
+  } finally {
+    await fh.close();
+  }
+}
+
 // ---------------------------------------------------------------- MCP server
 
 const ok = (value) => ({ content: [{ type: "text", text: JSON.stringify(value) }] });
@@ -684,15 +698,20 @@ function buildServer(cfg, state) {
   if (cfg.files) {
     tool(
       "read_file",
-      "Read a text file. Without offset/limit it returns the whole file; with them it returns that window of lines, which is how to read something large.",
+      "Read a text file. Without offset/limit it returns the whole file; with them it returns that window of lines, which is how to read something large. " +
+        'encoding "base64" returns the raw bytes instead (optionally a byteOffset/byteLength window), for binary files.',
       {
         path: z.string(),
         offset: z.number().int().min(1).optional().describe("First line to return, 1-based."),
         limit: z.number().int().min(1).max(50_000).optional(),
+        encoding: z.enum(["text", "base64"]).default("text"),
+        byteOffset: z.number().int().min(0).optional().describe("base64 only: first byte to return."),
+        byteLength: z.number().int().min(0).optional().describe("base64 only: bytes to return."),
         root: R,
       },
-      async ({ path: p, offset, limit, root }) => {
+      async ({ path: p, offset, limit, encoding, byteOffset, byteLength, root }) => {
         const r = roots.resolve(p, root);
+        if (encoding === "base64") return { path: r.rel, ...(await readBytes(r.abs, byteOffset ?? 0, byteLength, cfg.maxFileBytes)) };
         if (offset !== undefined || limit !== undefined) {
           const st = await fs.stat(r.abs);
           if (st.size > cfg.maxFileBytes) {
@@ -719,9 +738,17 @@ function buildServer(cfg, state) {
     );
     tool(
       "write_file",
-      "Write a whole file. Refuses to clobber an existing file unless overwrite is true.",
-      { path: z.string(), content: z.string().max(8_388_608), overwrite: z.boolean().default(false), root: R },
-      async ({ path: p, content, overwrite, root }) => {
+      'Write a whole file. Refuses to clobber an existing file unless overwrite is true. With encoding "base64", content is the raw bytes in base64.',
+      {
+        path: z.string(),
+        content: z.string().max(12_000_000),
+        overwrite: z.boolean().default(false),
+        encoding: z.enum(["text", "base64"]).default("text"),
+        root: R,
+      },
+      async ({ path: p, content, overwrite, encoding, root }) => {
+        const data = encoding === "base64" ? Buffer.from(content, "base64") : Buffer.from(content, "utf8");
+        if (encoding === "base64" && data.length > cfg.maxFileBytes) throw new Error(`content is ${data.length} bytes; the limit is ${cfg.maxFileBytes}`);
         const r = roots.resolve(p, root);
         if (!overwrite) {
           const exists = await fs.access(r.abs).then(
@@ -731,8 +758,8 @@ function buildServer(cfg, state) {
           if (exists) throw new Error(`${r.rel} exists; pass overwrite: true to replace it`);
         }
         await fs.mkdir(path.dirname(r.abs), { recursive: true });
-        await fs.writeFile(r.abs, content, "utf8");
-        return { path: r.rel, bytes: Buffer.byteLength(content), overwritten: Boolean(overwrite) };
+        await fs.writeFile(r.abs, data);
+        return { path: r.rel, bytes: data.length, overwritten: Boolean(overwrite) };
       }
     );
     tool(
@@ -753,7 +780,7 @@ function buildServer(cfg, state) {
     tool(
       "list_directory",
       "List one directory.",
-      { path: z.string().default("."), limit: z.number().int().min(1).max(2000).default(200), root: R },
+      { path: z.string().default("."), limit: z.number().int().min(1).max(100_000).default(200), root: R },
       async ({ path: p, limit, root }) => {
         const r = roots.resolve(p, root);
         const entries = await fs.readdir(r.abs, { withFileTypes: true });
@@ -761,14 +788,16 @@ function buildServer(cfg, state) {
         for (const e of entries.slice(0, limit)) {
           let size = null;
           let modified = null;
+          let mode;
           try {
             const st = await fs.stat(path.join(r.abs, e.name));
             size = st.isFile() ? st.size : null;
             modified = st.mtime.toISOString();
+            mode = st.mode & 0o7777;
           } catch {
             /* vanished or unreadable */
           }
-          rows.push({ name: e.name, type: e.isDirectory() ? "dir" : e.isSymbolicLink() ? "link" : "file", size, modified });
+          rows.push({ name: e.name, type: e.isDirectory() ? "dir" : e.isSymbolicLink() ? "link" : "file", size, modified, ...(mode === undefined ? {} : { mode }) });
         }
         return { path: r.rel, total: entries.length, truncated: entries.length > limit, entries: rows };
       }
@@ -854,6 +883,7 @@ function buildServer(cfg, state) {
         size: st.size,
         modified: st.mtime.toISOString(),
         created: st.birthtime.toISOString(),
+        mode: st.mode & 0o7777,
       };
     });
     tool("create_directory", "Create a directory, including parents.", { path: z.string(), root: R }, async ({ path: p, root }) => {

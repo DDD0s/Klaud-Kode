@@ -21,6 +21,9 @@ export async function apiFixture(t, { env: extra = {}, prepare = () => {} } = {}
       KOMPUTER_SESSION_DIR: dir, KOMPUTER_CLAUDE_CWD: dir, KOMPUTER_AUTH_FAIL_DELAY_MS: "1",
       KOMPUTER_HEALTH_URL: "http://127.0.0.1:9/healthz", KOMPUTER_TUNNEL_UP: path.join(dir, "disabled.sh"),
       CLAUDE_BIN: path.join(here, "fake-claude.mjs"), FAKE_CLAUDE_STATE: path.join(dir, "state"),
+      AGY_BIN: path.join(here, "fake-agy.mjs"), FAKE_AGY_STATE: path.join(dir, "state"), KOMPUTER_AGY_CWD: path.join(dir, "agy-ws"),
+      MUSE_BIN: path.join(here, "fake-muse.mjs"), FAKE_MUSE_STATE: path.join(dir, "state"), KOMPUTER_MUSE_CWD: path.join(dir, "muse-ws"),
+      KOMPUTER_RESPONSES_FILE: path.join(dir, "responses.json"),
       ...Object.fromEntries(Object.entries(extra).map(([k, v]) => [k, typeof v === "function" ? v(dir) : v])),
     }, stdio: ["ignore", "pipe", "pipe"],
   });
@@ -49,9 +52,15 @@ export async function apiFixture(t, { env: extra = {}, prepare = () => {} } = {}
       }
       throw new Error(`startup timeout: ${logs}`);
     },
-    calls() {
-      const p = path.join(dir, "state", "calls.jsonl");
+    calls(file = "calls.jsonl") {
+      const p = path.join(dir, "state", file);
       return fs.existsSync(p) ? fs.readFileSync(p, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse) : [];
+    },
+    agyCalls() {
+      return this.calls("agy-calls.jsonl");
+    },
+    museCalls() {
+      return this.calls("muse-calls.jsonl");
     },
     async request(endpoint, body, options = {}) {
       const r = await fetch(base + endpoint, {

@@ -1,6 +1,7 @@
 node_modules/
 KEYS.txt
 sessions.json
+responses.json
 *.pid
 logs/
 *.tmp

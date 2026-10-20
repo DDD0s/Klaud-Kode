@@ -54,7 +54,8 @@ async function main() {
   };
   fs.appendFileSync(
     path.join(stateDir, "calls.jsonl"),
-    JSON.stringify({ args, prompt, system, attachments, pid: process.pid, cwd: process.cwd(), env: envSeen }) + "\n"
+    JSON.stringify({ args, prompt, stdin, system, attachments, pid: process.pid, cwd: process.cwd(), env: envSeen,
+      envKeys: Object.keys(process.env).sort() }) + "\n"
   );
 
   let previous = "";

@@ -9,7 +9,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test test/server.test.mjs test/claude-env.test.mjs test/reliability.test.mjs test/naming.test.mjs test/client-tools.test.mjs test/public-http.test.mjs",
+    "test": "node --test test/server.test.mjs test/claude-env.test.mjs test/reliability.test.mjs test/naming.test.mjs test/client-tools.test.mjs test/public-http.test.mjs test/claude-regression.test.mjs",
     "start": "node server.mjs"
   },
   "dependencies": {

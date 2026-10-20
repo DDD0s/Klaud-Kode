@@ -1,4 +1,4 @@
-// Client-executed tools: Claude sees an isolated MCP server, while the harness
+// Client-executed tools: the CLI sees an isolated MCP server, while the harness
 // receives ordinary tool calls and supplies the results over the next API POST.
 // No client-provided command is executed by this module.
 import http from "node:http";
@@ -137,8 +137,8 @@ function json(res, status, value) {
 }
 
 export class ClientToolGateway {
-  constructor({ runClaude, acquire = async () => {}, release = () => {}, timeoutMs = 300_000, cacheMs = 600_000, maxRuns = 16, maxOutputBytes = 4_000_000 }) {
-    this.runClaude = runClaude;
+  constructor({ runCli, runClaude, acquire = async () => {}, release = () => {}, timeoutMs = 300_000, cacheMs = 600_000, maxRuns = 16, maxOutputBytes = 4_000_000 }) {
+    this.runCli = runCli || runClaude;
     this.acquire = acquire;
     this.release = release;
     this.timeoutMs = timeoutMs;
@@ -181,7 +181,7 @@ export class ClientToolGateway {
       if (!run || spec.results.some((r) => this.calls.get(r.id) !== run)) throw toolError(410, "Tool call state is unavailable; do not repeat side effects automatically", "tool_state_expired");
       if (run.protocol !== spec.protocol) throw toolError(409, "Do not change API protocol during a tool cycle");
       if (context.clientKey && run.context.clientKey && context.clientKey !== run.context.clientKey) throw toolError(409, "Tool results belong to a different conversation");
-      if (context.modelSpecified && context.model !== run.context.model) throw toolError(409, "Cannot change models while tool calls are pending");
+      if (context.modelSpecified && (context.model !== run.context.model || context.backend !== run.context.backend)) throw toolError(409, "Cannot change models while tool calls are pending");
       if (context.effortSpecified && context.effort !== run.context.effort) throw toolError(409, "Cannot change reasoning effort during a tool cycle");
       if (context.systemSpecified && context.systemPrompt !== run.context.systemPrompt) throw toolError(409, "Cannot change system instructions during a tool cycle");
       if (spec.tools && digest(spec.tools) !== run.toolDigest) throw toolError(409, "Cannot change tool definitions during a tool cycle");
@@ -307,8 +307,9 @@ export class ClientToolGateway {
       run.server.listen(0, "127.0.0.1", resolve);
     });
     const mcpConfig = path.join(run.dir, "tools.json");
+    const mcpServer = { name: "komputer_use", url: `http://127.0.0.1:${run.server.address().port}/mcp`, headers: { Authorization: `Bearer ${token}` } };
     await fs.writeFile(mcpConfig, JSON.stringify({ mcpServers: { komputer_use: {
-      type: "http", url: `http://127.0.0.1:${run.server.address().port}/mcp`, headers: { Authorization: `Bearer ${token}` },
+      type: "http", url: mcpServer.url, headers: mcpServer.headers,
     } } }), { mode: 0o600 });
     if (run.abort.signal.aborted) throw run.abort.signal.reason;
     await this.takeLease(run);
@@ -317,8 +318,8 @@ export class ClientToolGateway {
     const instruction = policy.choice === "none" ? "Do not call any tools."
       : policy.choice === "required" ? "Use at least one available tool before your first answer."
         : forced ? `For your first tool call, use ${forced.alias} (${forced.name}).` : "";
-    const out = await this.runClaude(run.context, {
-      mcpConfig, instruction, signal: run.abort.signal,
+    const out = await this.runCli(run.context, {
+      mcpConfig, mcpServer, workDir: run.dir, instruction, signal: run.abort.signal,
       onText: (t) => this.emit(run, "text", t), onThinking: (t) => this.emit(run, "thinking", t),
     });
     if (run.done) return;

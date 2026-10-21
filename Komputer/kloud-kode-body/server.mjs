@@ -288,20 +288,33 @@ function powershellScript(command, { utf8 = true } = {}) {
 const MAX_ENCODED_COMMAND = 30_000;
 
 /**
- * powershell.exe / pwsh arguments. -EncodedCommand sidesteps every layer of
- * quoting; -OutputFormat Text keeps errors readable (with -EncodedCommand they
- * otherwise arrive as CLIXML); -InputFormat None stops PowerShell itself from
- * waiting on a stdin that stays open. Interactive (started) processes may prompt.
+ * powershell.exe / pwsh arguments. -EncodedCommand and -File both sidestep
+ * every layer of quoting. With -EncodedCommand, errors arrive as CLIXML unless
+ * -OutputFormat Text is honoured, which pwsh does and Windows PowerShell 5.1
+ * does not, so 5.1 (`file: true`) always runs a temporary .ps1. -InputFormat
+ * None stops PowerShell itself from waiting on a stdin that stays open.
+ * Interactive (started) processes may prompt.
  */
-function powershellArgs(command, { utf8 = true, interactive = false, tmpDir = os.tmpdir() } = {}) {
+function powershellArgs(command, { utf8 = true, interactive = false, file: viaFile = false, tmpDir = os.tmpdir() } = {}) {
   const script = powershellScript(command, { utf8 });
   const head = ["-NoLogo", "-NoProfile", ...(interactive ? [] : ["-NonInteractive"]), "-ExecutionPolicy", "Bypass",
     "-InputFormat", "None", "-OutputFormat", "Text"];
   const encoded = Buffer.from(script, "utf16le").toString("base64");
-  if (encoded.length <= MAX_ENCODED_COMMAND) return { args: [...head, "-EncodedCommand", encoded], file: null };
+  if (!viaFile && encoded.length <= MAX_ENCODED_COMMAND) return { args: [...head, "-EncodedCommand", encoded], file: null };
   const file = path.join(tmpDir, `kloud-kode-${randomUUID()}.ps1`);
   // Windows PowerShell 5.1 reads a script without a BOM in the ANSI code page.
   return { args: [...head, "-File", file], file: { path: file, content: "\uFEFF" + script } };
+}
+
+/**
+ * cmd.exe arguments. cmd picks its output code page when it starts, so after
+ * `chcp 65001` the command runs in a second cmd. It travels in an environment
+ * variable read with delayed expansion, so the outer cmd never parses it and
+ * the inner one parses it exactly once.
+ */
+function cmdArgs(command, { utf8 = true, exe = "cmd.exe" } = {}) {
+  if (!utf8) return { args: ["/d", "/s", "/c", `"${command}"`], env: {} };
+  return { args: ["/d", "/v:on", "/s", "/c", `"chcp 65001>nul & "${exe}" /d /s /c "!KLOUD_KODE_CMD!""`], env: { KLOUD_KODE_CMD: command } };
 }
 
 /**
@@ -316,15 +329,17 @@ function spawnShell(command, shell, options, { utf8 = true, interactive = false 
     case "powershell":
     case "pwsh": {
       const exe = shellPath(shell) || (shell === "pwsh" ? "pwsh" : "powershell.exe");
-      const { args, file } = powershellArgs(command, { utf8, interactive });
+      const { args, file } = powershellArgs(command, { utf8, interactive, file: shell === "powershell" });
       if (file) writeFileSync(file.path, file.content, { mode: 0o600 });
       const child = spawn(exe, args, base);
       if (file) child.once("close", () => { try { unlinkSync(file.path); } catch { /* already gone */ } });
       return child;
     }
-    case "cmd":
-      return spawn(shellPath("cmd") || process.env.COMSPEC || "cmd.exe", ["/d", "/s", "/c", `"${utf8 && IS_WINDOWS ? "chcp 65001>nul & " : ""}${command}"`],
-        { ...base, windowsVerbatimArguments: true });
+    case "cmd": {
+      const exe = shellPath("cmd") || process.env.COMSPEC || "cmd.exe";
+      const { args, env } = cmdArgs(command, { utf8: utf8 && IS_WINDOWS, exe });
+      return spawn(exe, args, { ...base, env: { ...base.env, ...env }, windowsVerbatimArguments: true });
+    }
     case "wsl":
       if (!shellPath("wsl")) throw new Error("WSL is not installed on this computer");
       return spawn(shellPath("wsl"), ["-e", "bash", "-c", command], base);
@@ -1246,4 +1261,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   });
 }
 
-export { buildServer, decodeOutput, readTextWindow, globToRegExp, HeadAndTail, Roots, Processes, loadConfig, detectShells, powershellScript, powershellArgs, runCommand };
+export { buildServer, decodeOutput, readTextWindow, globToRegExp, HeadAndTail, Roots, Processes, loadConfig, detectShells, powershellScript, powershellArgs, cmdArgs, runCommand };

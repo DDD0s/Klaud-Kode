@@ -57,6 +57,9 @@ test("Windows: cmd under code page 65001, Git Bash", { skip }, async () => {
   assert.equal(cmd.exitCode, 5);
   assert.equal(cmd.stdout.trim(), "中文");
   assert.equal(cmd.encoding, "utf-8");
+  const quoted = await run(`echo "a & b"! & echo 中 & exit /b 6`, "cmd");
+  assert.equal(quoted.exitCode, 6);
+  assert.deepEqual(quoted.stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean), [`"a & b"!`, "中"]);
   const bash = await run("echo \"$((1+2)) $(uname -o)\"; exit 4", "bash");
   assert.equal(bash.exitCode, 4);
   assert.match(bash.stdout, /^3 Msys/);

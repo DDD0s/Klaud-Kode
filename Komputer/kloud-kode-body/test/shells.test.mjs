@@ -6,7 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { detectShells, powershellArgs, powershellScript, runCommand, Processes } from "../server.mjs";
+import { cmdArgs, decodeOutput, detectShells, powershellArgs, powershellScript, runCommand, Processes } from "../server.mjs";
 
 if (process.env.KLOUD_KODE_TEST_PWSH) process.env.PATH = `${process.env.KLOUD_KODE_TEST_PWSH}${path.delimiter}${process.env.PATH}`;
 const pwsh = String(process.env.PATH).split(path.delimiter).some((d) => d && fs.existsSync(path.join(d, "pwsh")));
@@ -61,6 +61,16 @@ test("the PowerShell script and arguments: UTF-8, plain-text errors, bash exit s
   assert.equal(long.args.at(-2), "-File");
   assert.ok(long.file.content.startsWith("\uFEFF"), "Windows PowerShell 5.1 needs the BOM to read UTF-8");
   assert.ok(long.file.path.endsWith(".ps1"));
+  const ps51 = powershellArgs("Get-Date", { file: true, tmpDir: "/tmp" });
+  assert.equal(ps51.args.at(-2), "-File", "Windows PowerShell 5.1 ignores -OutputFormat Text with -EncodedCommand");
+  assert.ok(ps51.file.content.endsWith(powershellScript("Get-Date")));
+});
+
+test("cmd: the command reaches a second cmd started after chcp 65001, through one parse", () => {
+  const c = cmdArgs(`echo "a & b"! & exit /b 5`, { exe: "C:\\Windows\\System32\\cmd.exe" });
+  assert.deepEqual(c.args, ["/d", "/v:on", "/s", "/c", `"chcp 65001>nul & "C:\\Windows\\System32\\cmd.exe" /d /s /c "!KLOUD_KODE_CMD!""`]);
+  assert.deepEqual(c.env, { KLOUD_KODE_CMD: `echo "a & b"! & exit /b 5` });
+  assert.deepEqual(cmdArgs("dir", { utf8: false }), { args: ["/d", "/s", "/c", `"dir"`], env: {} });
 });
 
 test("PowerShell (real pwsh): exit codes follow bash, output is UTF-8, errors are text, long scripts run", { skip: !pwsh && "pwsh is not installed" }, async () => {
@@ -94,6 +104,12 @@ test("PowerShell (real pwsh): exit codes follow bash, output is UTF-8, errors ar
     const table = await runCommand({ command: "Get-ChildItem -Force", shell: "pwsh", cwd: dir, timeoutMs: 30_000, maxOutputBytes: 1 << 20 });
     assert.ok(table.stdout.split("\n").some((l) => l.endsWith(name)), `tables are not wrapped at 80 columns:\n${table.stdout}`);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("output that is not UTF-8 is decoded with the console code page, e.g. GBK", () => {
+  const gbk = Buffer.from([0xd6, 0xd0, 0xce, 0xc4, 0x0d, 0x0a]);
+  assert.deepEqual(decodeOutput(gbk, "gbk"), { text: "中文\r\n", encoding: "gbk" });
+  assert.deepEqual(decodeOutput(Buffer.from("中文\r\n"), "gbk"), { text: "中文\r\n", encoding: "utf-8" }, "UTF-8 wins when it is valid");
 });
 
 test("a started process with idleTimeoutMs is stopped once nobody reads it", async () => {

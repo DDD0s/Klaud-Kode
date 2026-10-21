@@ -26,7 +26,9 @@ EMURATED...
 
 ## 做到哪了
 
-API 已支持 Chat Completions 和 Messages 两种请求格式，包括流式回复、客户端工具调用和结果回传。
+API 已支持 Chat Completions、Messages 和 Responses 三种请求格式，包括流式回复、客户端工具调用和结果回传。
+除 Claude Code 外，还可以按模型名把请求交给 Antigravity（`agy`）或 Muse Code（`muse`）。
+每个回合都启动真实的官方 CLI，不模拟它们的协议，见 [CLI 后端](Komputer/docs/backends.md)。
 Body 提供文件读写、搜索、命令执行、长进程管理，也能连接本机的其他 MCP 服务。
 
 还需要继续解决的事情：
@@ -37,7 +39,7 @@ Body 提供文件读写、搜索、命令执行、长进程管理，也能连接
 - 重启后的任务恢复。harness 的未完成工具调用存在内存里，服务重启后不能原地续上。
 
 Linux CI 在 Node.js 22 和 24 上运行 API、Body 和 HTTPS 测试。API 测试用替身 CLI，
-不消耗 Claude 额度；公网域名、真实 Claude 和具体 harness 的完整联调还没完成。
+不消耗模型额度；公网域名、真实 Claude、登录后的 agy / muse 和具体 harness 的完整联调还没完成。
 
 ## 用之前看一下
 
@@ -63,6 +65,7 @@ Body 的 `roots` 只限制文件工具，不能把 shell 命令关在指定目�
 - [安装步骤](Komputer/SETUP.md)
 - [API 配置和会话](Komputer/komputer-api/README.md)
 - [客户端工具协议](Komputer/docs/harness-api.md)
+- [CLI 后端](Komputer/docs/backends.md)
 - [Body 安装和工具](Komputer/kloud-kode-body/README.md)
 - [开发说明](Komputer/DEVELOPING.md)
 - [后续工作](Komputer/ROADMAP.md)

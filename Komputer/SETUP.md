@@ -131,7 +131,7 @@ Messages 的完整请求地址是 `/v1/messages`。不同客户端是否自动�
 客户端工具请求的响应头应有 `X-Komputer-Mode: harness`。
 
 具体客户端还没有逐一联调过。工具格式、重试和取消的要求见 [客户端工具协议](docs/harness-api.md)。
-如果客户端只支持 Responses API，目前不能直接接入。
+只支持 Responses API 的客户端可以使用 `/v1/responses`，同样支持函数工具和 `previous_response_id`。
 
 ## 可选：用 Body 提供本地工具
 

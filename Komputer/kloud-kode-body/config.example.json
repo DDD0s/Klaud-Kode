@@ -9,6 +9,7 @@
   "files": true,
   "shell": true,
   "processes": true,
+  "consoleUtf8": true,
   "maxOutputBytes": 262144,
   "maxFileBytes": 8388608,
   "defaultTimeoutMs": 30000,

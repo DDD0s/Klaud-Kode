@@ -30,12 +30,36 @@ jobs:
       - name: Install API dependencies
         working-directory: Komputer/komputer-api
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Test API, harness round trips and verified HTTPS
-        working-directory: Komputer/komputer-api
-        run: npm test
+      # The API tests run agy turns against a real workstation (Body) process.
       - name: Install workstation dependencies
         working-directory: Komputer/kloud-kode-body
         run: npm ci --ignore-scripts --no-audit --no-fund
+      # Ubuntu runners ship PowerShell 7; the Windows-computer tests run against it.
+      - name: PowerShell version
+        run: pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+      - name: Test API, harness round trips and verified HTTPS
+        working-directory: Komputer/komputer-api
+        run: npm test
       - name: Test workstation tools
         working-directory: Komputer/kloud-kode-body
         run: npm test
+
+  # The workstation on a real Windows host: Windows PowerShell 5.1, pwsh, cmd, Git Bash.
+  workstation-windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Komputer/kloud-kode-body/package-lock.json
+      - name: Install workstation dependencies
+        working-directory: Komputer/kloud-kode-body
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Test the Windows shells
+        working-directory: Komputer/kloud-kode-body
+        run: node --test test/windows-host.test.mjs

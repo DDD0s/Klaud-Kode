@@ -16,7 +16,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
-import { createReadStream, promises as fs } from "node:fs";
+import { createReadStream, existsSync, writeFileSync, unlinkSync, promises as fs } from "node:fs";
 import { randomUUID, createHash, timingSafeEqual } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -26,7 +26,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { z } from "zod";
 
-const VERSION = "1.2.1";
+const VERSION = "1.3.0";
 const CONFIG_PATH = process.env.KLOUD_KODE_BODY_CONFIG || path.join(os.homedir(), ".kloud-kode-body", "config.json");
 
 // ---------------------------------------------------------------- config
@@ -44,6 +44,8 @@ const DEFAULTS = {
   maxOutputBytes: 256 * 1024,
   maxFileBytes: 8 * 1024 * 1024,
   defaultTimeoutMs: 30_000,
+  /** Windows: run PowerShell and cmd with UTF-8 console output (code page 65001) instead of the OEM code page. */
+  consoleUtf8: true,
   /** stdio MCP servers on this machine, exposed through call_mcp_tool. */
   mcpServers: {},
 };
@@ -209,35 +211,155 @@ function commandEnv() {
 const IS_WINDOWS = process.platform === "win32";
 /** What "default" means on this machine, in words the model can act on. */
 const DEFAULT_SHELL_NAME = IS_WINDOWS ? "cmd.exe" : path.basename(process.env.SHELL || "/bin/sh");
-const SHELLS = ["default", "cmd", "powershell", "pwsh", "bash", "sh"];
+const SHELLS = ["default", "cmd", "powershell", "pwsh", "bash", "sh", "wsl"];
+
+function onPath(names, env, exists, { skip = () => false, paths = path } = {}) {
+  for (const dir of String(env.PATH || env.Path || "").split(paths.delimiter)) {
+    if (!dir) continue;
+    for (const name of names) {
+      const p = paths.join(dir, name);
+      if (!skip(p) && exists(p)) return p;
+    }
+  }
+  return null;
+}
+
+/**
+ * The shells installed here, by the names run_command accepts (null: missing).
+ * On Windows "bash" means Git Bash: the bash.exe in System32 is WSL's launcher,
+ * which runs Linux with different paths, so that one is "wsl" instead.
+ */
+function detectShells({ platform = process.platform, env = process.env, exists = existsSync } = {}) {
+  if (platform !== "win32") {
+    const posix = (names) => onPath(names, env, exists, { paths: path.posix });
+    const sh = posix(["sh"]) || (exists("/bin/sh") ? "/bin/sh" : null);
+    return { default: sh, sh, bash: posix(["bash"]), pwsh: posix(["pwsh"]), powershell: null, cmd: null, wsl: null };
+  }
+  const p = path.win32;
+  const sys = env.SystemRoot || env.SYSTEMROOT || "C:\\Windows";
+  const first = (...candidates) => candidates.find((c) => c && exists(c)) || null;
+  const system32 = p.join(sys, "System32").toLowerCase();
+  const win = (names, skip) => onPath(names, env, exists, { paths: p, skip });
+  const cmd = first(env.ComSpec || env.COMSPEC, p.join(sys, "System32", "cmd.exe"));
+  return {
+    default: cmd,
+    cmd,
+    powershell: first(p.join(sys, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")) || win(["powershell.exe"]),
+    pwsh: win(["pwsh.exe"]) || first(env.ProgramFiles && p.join(env.ProgramFiles, "PowerShell", "7", "pwsh.exe")),
+    bash: first(
+      env.ProgramFiles && p.join(env.ProgramFiles, "Git", "bin", "bash.exe"),
+      env["ProgramFiles(x86)"] && p.join(env["ProgramFiles(x86)"], "Git", "bin", "bash.exe"),
+      env.LOCALAPPDATA && p.join(env.LOCALAPPDATA, "Programs", "Git", "bin", "bash.exe"),
+    ) || win(["bash.exe"], (c) => p.dirname(c).toLowerCase() === system32),
+    sh: null,
+    wsl: first(p.join(sys, "System32", "wsl.exe")),
+  };
+}
+
+let shellPaths = null;
+const shellPath = (name) => (shellPaths ||= detectShells())[name];
+
+/**
+ * The script PowerShell runs for a command: UTF-8 console output, no progress
+ * records, and bash's exit status rule (the last statement decides; a failed
+ * native command passes its own code through). With redirected output,
+ * PowerShell formats tables for an 80-column console and wraps or truncates
+ * long names; the command's output goes through Out-String -Width instead,
+ * with the trailing spaces Windows PowerShell 5.1 pads each table line with trimmed.
+ * The command is dot-sourced, so its variables and functions stay in script scope.
+ */
+function powershellScript(command, { utf8 = true } = {}) {
+  return [
+    "$ProgressPreference = 'SilentlyContinue'",
+    ...(utf8
+      ? ["try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch {}",
+          "try { [Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false } catch {}",
+          "$OutputEncoding = New-Object System.Text.UTF8Encoding $false"]
+      : []),
+    "$global:LASTEXITCODE = 0",
+    "$global:__komputerOk = $true",
+    ". {",
+    command,
+    "$global:__komputerOk = $? } | Out-String -Stream -Width 4096 | ForEach-Object { $_.TrimEnd(' ') }",
+    "if (-not $global:__komputerOk) { if ($LASTEXITCODE) { exit $LASTEXITCODE }; exit 1 }",
+    "exit 0",
+  ].join("\n");
+}
+
+/** A Windows command line holds 32767 characters; longer scripts go through a temporary .ps1 file. */
+const MAX_ENCODED_COMMAND = 30_000;
+
+/**
+ * powershell.exe / pwsh arguments. -EncodedCommand and -File both sidestep
+ * every layer of quoting. With -EncodedCommand, errors arrive as CLIXML unless
+ * -OutputFormat Text is honoured, which pwsh does and Windows PowerShell 5.1
+ * does not, so 5.1 (`file: true`) always runs a temporary .ps1. -InputFormat
+ * None stops PowerShell itself from waiting on a stdin that stays open.
+ * Interactive (started) processes may prompt.
+ */
+function powershellArgs(command, { utf8 = true, interactive = false, file: viaFile = false, tmpDir = os.tmpdir() } = {}) {
+  const script = powershellScript(command, { utf8 });
+  const head = ["-NoLogo", "-NoProfile", ...(interactive ? [] : ["-NonInteractive"]), "-ExecutionPolicy", "Bypass",
+    "-InputFormat", "None", "-OutputFormat", "Text"];
+  const encoded = Buffer.from(script, "utf16le").toString("base64");
+  if (!viaFile && encoded.length <= MAX_ENCODED_COMMAND) return { args: [...head, "-EncodedCommand", encoded], file: null };
+  const file = path.join(tmpDir, `kloud-kode-${randomUUID()}.ps1`);
+  // Windows PowerShell 5.1 reads a script without a BOM in the ANSI code page.
+  return { args: [...head, "-File", file], file: { path: file, content: "\uFEFF" + script } };
+}
+
+/**
+ * cmd.exe arguments. cmd picks its output code page when it starts, so after
+ * `chcp 65001` the command runs in a second cmd. It travels in an environment
+ * variable read with delayed expansion, so the outer cmd never parses it and
+ * the inner one parses it exactly once.
+ */
+function cmdArgs(command, { utf8 = true, exe = "cmd.exe" } = {}) {
+  if (!utf8) return { args: ["/d", "/s", "/c", `"${command}"`], env: {} };
+  return { args: ["/d", "/v:on", "/s", "/c", `"chcp 65001>nul & "${exe}" /d /s /c "!KLOUD_KODE_CMD!""`], env: { KLOUD_KODE_CMD: command } };
+}
 
 /**
  * Spawn `command` in the requested shell. "default" is the platform shell
  * (cmd.exe on Windows). Naming a shell runs the command in it directly, which
  * spares the model from nesting PowerShell quoting inside cmd quoting.
  */
-function spawnShell(command, shell, options) {
+function spawnShell(command, shell, options, { utf8 = true, interactive = false } = {}) {
   const base = { windowsHide: true, env: commandEnv(), detached: !IS_WINDOWS, ...options };
+  if (IS_WINDOWS && shell === "default") shell = "cmd";
   switch (shell) {
     case "powershell":
-    case "pwsh":
-      return spawn(shell === "pwsh" ? "pwsh" : "powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], base);
-    case "cmd":
-      return spawn(process.env.COMSPEC || "cmd.exe", ["/d", "/s", "/c", `"${command}"`], { ...base, windowsVerbatimArguments: true });
+    case "pwsh": {
+      const exe = shellPath(shell) || (shell === "pwsh" ? "pwsh" : "powershell.exe");
+      const { args, file } = powershellArgs(command, { utf8, interactive, file: shell === "powershell" });
+      if (file) writeFileSync(file.path, file.content, { mode: 0o600 });
+      const child = spawn(exe, args, base);
+      if (file) child.once("close", () => { try { unlinkSync(file.path); } catch { /* already gone */ } });
+      return child;
+    }
+    case "cmd": {
+      const exe = shellPath("cmd") || process.env.COMSPEC || "cmd.exe";
+      const { args, env } = cmdArgs(command, { utf8: utf8 && IS_WINDOWS, exe });
+      return spawn(exe, args, { ...base, env: { ...base.env, ...env }, windowsVerbatimArguments: true });
+    }
+    case "wsl":
+      if (!shellPath("wsl")) throw new Error("WSL is not installed on this computer");
+      return spawn(shellPath("wsl"), ["-e", "bash", "-c", command], base);
     case "bash":
     case "sh":
-      return spawn(shell, ["-c", command], base);
+      if (IS_WINDOWS && shell === "bash" && !shellPath("bash")) throw new Error("bash is not installed on this computer (Git for Windows provides it)");
+      return spawn(IS_WINDOWS ? shellPath(shell) || shell : shell, ["-c", command], base);
     default:
       return spawn(command, { ...base, shell: true });
   }
 }
 
-function runCommand({ command, cwd, timeoutMs, maxOutputBytes, shell = "default" }) {
+function runCommand({ command, cwd, timeoutMs, maxOutputBytes, shell = "default", utf8 = true }) {
   return new Promise((resolve, reject) => {
     const started = Date.now();
     // stdin is closed, so a command that stops to ask a question (cmd's bare
     // `date`, say) gets EOF and ends instead of hanging until the timeout.
-    const child = spawnShell(command, shell, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawnShell(command, shell, { cwd, stdio: ["ignore", "pipe", "pipe"] }, { utf8 });
     const out = new HeadAndTail(maxOutputBytes);
     const err = new HeadAndTail(maxOutputBytes);
     let timedOut = false;
@@ -286,14 +408,29 @@ function runCommand({ command, cwd, timeoutMs, maxOutputBytes, shell = "default"
 
 /** Long-running commands (dev servers, watchers) that outlive a single turn. */
 class Processes {
-  constructor(maxOutputBytes) {
+  constructor(maxOutputBytes, { utf8 = true } = {}) {
     this.max = maxOutputBytes;
+    this.utf8 = utf8;
     this.map = new Map();
   }
-  start(command, cwd, shell = "default") {
+  /**
+   * idleTimeoutMs is a lease: the process is stopped once nobody has read it for
+   * that long, so a caller that died without stop_process leaves nothing behind.
+   */
+  start(command, cwd, shell = "default", { idleTimeoutMs } = {}) {
     const id = randomUUID();
-    const child = spawnShell(command, shell, { cwd, stdio: ["pipe", "pipe", "pipe"] });
-    const rec = { id, command, cwd, shell, child, out: [], err: [], outLen: 0, errLen: 0, exitCode: null, signal: null, finished: false, startedAt: new Date().toISOString() };
+    const child = spawnShell(command, shell, { cwd, stdio: ["pipe", "pipe", "pipe"] }, { utf8: this.utf8, interactive: true });
+    child.stdin.on("error", () => {});
+    const rec = { id, command, cwd, shell, child, out: [], err: [], outLen: 0, errLen: 0, exitCode: null, signal: null, finished: false, startedAt: new Date().toISOString(),
+      idleTimeoutMs: idleTimeoutMs || null, touched: Date.now(), idleStopped: false };
+    if (idleTimeoutMs) {
+      rec.lease = setInterval(() => {
+        if (rec.finished || Date.now() - rec.touched < idleTimeoutMs) return;
+        rec.idleStopped = true;
+        this.stop(id);
+      }, Math.min(idleTimeoutMs, 5_000));
+      rec.lease.unref?.();
+    }
     child.stdout.on("data", (c) => {
       rec.outLen += c.length;
       rec.out.push(c);
@@ -309,6 +446,7 @@ class Processes {
       rec.exitCode = code;
       rec.signal = sig;
       rec.endedAt = new Date().toISOString();
+      clearInterval(rec.lease);
     });
     child.on("error", (e) => {
       rec.finished = true;
@@ -340,6 +478,7 @@ class Processes {
   }
   read(id, outCursor = 0, errCursor = 0) {
     const rec = this.#get(id);
+    rec.touched = Date.now();
     const slice = (which, cursor) => {
       const base = rec[`${which}Base`] || 0;
       const buf = Buffer.concat(rec[which]);
@@ -360,10 +499,12 @@ class Processes {
       stdoutCursor: o.cursor,
       stderrCursor: e.cursor,
       ...(o.missedBytes || e.missedBytes ? { missedBytes: { stdout: o.missedBytes, stderr: e.missedBytes } } : {}),
+      ...(rec.idleStopped ? { idleStopped: true } : {}),
     };
   }
   write(id, input) {
     const rec = this.#get(id);
+    rec.touched = Date.now();
     if (rec.finished) throw new Error("process already exited");
     rec.child.stdin.write(input);
     return { processId: id, wrote: input.length };
@@ -567,6 +708,20 @@ class NestedMcp {
   }
 }
 
+/** Raw bytes of a file window, base64-encoded, for binary-safe clients such as a remote filesystem. */
+async function readBytes(abs, offset, length, max) {
+  const fh = await fs.open(abs, "r");
+  try {
+    const { size } = await fh.stat();
+    const want = Math.min(length ?? size - offset, max, Math.max(0, size - offset));
+    const buf = Buffer.alloc(Math.max(0, want));
+    const { bytesRead } = want > 0 ? await fh.read(buf, 0, want, offset) : { bytesRead: 0 };
+    return { size, encoding: "base64", byteOffset: offset, byteLength: bytesRead, content: buf.subarray(0, bytesRead).toString("base64") };
+  } finally {
+    await fh.close();
+  }
+}
+
 // ---------------------------------------------------------------- MCP server
 
 const ok = (value) => ({ content: [{ type: "text", text: JSON.stringify(value) }] });
@@ -606,7 +761,9 @@ function buildServer(cfg, state) {
       shell: process.platform === "win32" ? process.env.COMSPEC : process.env.SHELL,
       defaultShell: DEFAULT_SHELL_NAME,
       shells: SHELLS,
+      availableShells: SHELLS.filter((s) => shellPath(s)),
       consoleEncoding: CONSOLE_ENCODING,
+      ...(IS_WINDOWS ? { consoleUtf8: cfg.consoleUtf8 !== false } : {}),
       cwdRoot: { name: r.rootName, path: r.root },
       roots: Object.entries(cfg.roots).map(([name, p]) => ({ name, path: p })),
       defaultRoot: cfg.defaultRoot,
@@ -640,6 +797,7 @@ function buildServer(cfg, state) {
           cwd: r.abs,
           timeoutMs: timeoutMs ?? cfg.defaultTimeoutMs,
           maxOutputBytes: cfg.maxOutputBytes,
+          utf8: cfg.consoleUtf8 !== false,
         });
       }
     );
@@ -653,9 +811,11 @@ function buildServer(cfg, state) {
         command: z.string().min(1).max(32_000),
         shell: z.enum(SHELLS).default("default"),
         cwd: z.string().default("."),
+        idleTimeoutMs: z.number().int().min(1_000).max(86_400_000).optional()
+          .describe("Stop the process once read_process has not been called for this long."),
         root: R,
       },
-      async ({ command, shell, cwd, root }) => state.processes.start(command, roots.resolve(cwd, root).abs, shell)
+      async ({ command, shell, cwd, idleTimeoutMs, root }) => state.processes.start(command, roots.resolve(cwd, root).abs, shell, { idleTimeoutMs })
     );
     tool(
       "read_process",
@@ -684,15 +844,20 @@ function buildServer(cfg, state) {
   if (cfg.files) {
     tool(
       "read_file",
-      "Read a text file. Without offset/limit it returns the whole file; with them it returns that window of lines, which is how to read something large.",
+      "Read a text file. Without offset/limit it returns the whole file; with them it returns that window of lines, which is how to read something large. " +
+        'encoding "base64" returns the raw bytes instead (optionally a byteOffset/byteLength window), for binary files.',
       {
         path: z.string(),
         offset: z.number().int().min(1).optional().describe("First line to return, 1-based."),
         limit: z.number().int().min(1).max(50_000).optional(),
+        encoding: z.enum(["text", "base64"]).default("text"),
+        byteOffset: z.number().int().min(0).optional().describe("base64 only: first byte to return."),
+        byteLength: z.number().int().min(0).optional().describe("base64 only: bytes to return."),
         root: R,
       },
-      async ({ path: p, offset, limit, root }) => {
+      async ({ path: p, offset, limit, encoding, byteOffset, byteLength, root }) => {
         const r = roots.resolve(p, root);
+        if (encoding === "base64") return { path: r.rel, ...(await readBytes(r.abs, byteOffset ?? 0, byteLength, cfg.maxFileBytes)) };
         if (offset !== undefined || limit !== undefined) {
           const st = await fs.stat(r.abs);
           if (st.size > cfg.maxFileBytes) {
@@ -719,9 +884,17 @@ function buildServer(cfg, state) {
     );
     tool(
       "write_file",
-      "Write a whole file. Refuses to clobber an existing file unless overwrite is true.",
-      { path: z.string(), content: z.string().max(8_388_608), overwrite: z.boolean().default(false), root: R },
-      async ({ path: p, content, overwrite, root }) => {
+      'Write a whole file. Refuses to clobber an existing file unless overwrite is true. With encoding "base64", content is the raw bytes in base64.',
+      {
+        path: z.string(),
+        content: z.string().max(12_000_000),
+        overwrite: z.boolean().default(false),
+        encoding: z.enum(["text", "base64"]).default("text"),
+        root: R,
+      },
+      async ({ path: p, content, overwrite, encoding, root }) => {
+        const data = encoding === "base64" ? Buffer.from(content, "base64") : Buffer.from(content, "utf8");
+        if (encoding === "base64" && data.length > cfg.maxFileBytes) throw new Error(`content is ${data.length} bytes; the limit is ${cfg.maxFileBytes}`);
         const r = roots.resolve(p, root);
         if (!overwrite) {
           const exists = await fs.access(r.abs).then(
@@ -731,8 +904,8 @@ function buildServer(cfg, state) {
           if (exists) throw new Error(`${r.rel} exists; pass overwrite: true to replace it`);
         }
         await fs.mkdir(path.dirname(r.abs), { recursive: true });
-        await fs.writeFile(r.abs, content, "utf8");
-        return { path: r.rel, bytes: Buffer.byteLength(content), overwritten: Boolean(overwrite) };
+        await fs.writeFile(r.abs, data);
+        return { path: r.rel, bytes: data.length, overwritten: Boolean(overwrite) };
       }
     );
     tool(
@@ -753,7 +926,7 @@ function buildServer(cfg, state) {
     tool(
       "list_directory",
       "List one directory.",
-      { path: z.string().default("."), limit: z.number().int().min(1).max(2000).default(200), root: R },
+      { path: z.string().default("."), limit: z.number().int().min(1).max(100_000).default(200), root: R },
       async ({ path: p, limit, root }) => {
         const r = roots.resolve(p, root);
         const entries = await fs.readdir(r.abs, { withFileTypes: true });
@@ -761,14 +934,16 @@ function buildServer(cfg, state) {
         for (const e of entries.slice(0, limit)) {
           let size = null;
           let modified = null;
+          let mode;
           try {
             const st = await fs.stat(path.join(r.abs, e.name));
             size = st.isFile() ? st.size : null;
             modified = st.mtime.toISOString();
+            mode = st.mode & 0o7777;
           } catch {
             /* vanished or unreadable */
           }
-          rows.push({ name: e.name, type: e.isDirectory() ? "dir" : e.isSymbolicLink() ? "link" : "file", size, modified });
+          rows.push({ name: e.name, type: e.isDirectory() ? "dir" : e.isSymbolicLink() ? "link" : "file", size, modified, ...(mode === undefined ? {} : { mode }) });
         }
         return { path: r.rel, total: entries.length, truncated: entries.length > limit, entries: rows };
       }
@@ -854,6 +1029,7 @@ function buildServer(cfg, state) {
         size: st.size,
         modified: st.mtime.toISOString(),
         created: st.birthtime.toISOString(),
+        mode: st.mode & 0o7777,
       };
     });
     tool("create_directory", "Create a directory, including parents.", { path: z.string(), root: R }, async ({ path: p, root }) => {
@@ -1044,7 +1220,7 @@ function log(...args) {
 async function main() {
   const mode = process.argv[2] || "http";
   const cfg = await loadConfig();
-  const state = { processes: new Processes(cfg.maxOutputBytes), nested: new NestedMcp(cfg) };
+  const state = { processes: new Processes(cfg.maxOutputBytes, { utf8: cfg.consoleUtf8 !== false }), nested: new NestedMcp(cfg) };
 
   const shutdown = async () => {
     state.processes.killAll();
@@ -1087,4 +1263,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   });
 }
 
-export { buildServer, decodeOutput, readTextWindow, globToRegExp, HeadAndTail, Roots, Processes, loadConfig };
+export { buildServer, decodeOutput, readTextWindow, globToRegExp, HeadAndTail, Roots, Processes, loadConfig, detectShells, powershellScript, powershellArgs, cmdArgs, runCommand };

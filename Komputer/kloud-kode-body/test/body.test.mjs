@@ -263,6 +263,30 @@ test("read_file can window a file larger than the whole-file limit", async () =>
   }
 });
 
+test("base64 read and write are byte-exact, windowed, and limited; stat and listings carry the mode", async () => {
+  const bytes = Buffer.from([0, 1, 2, 0xff, 0xfe, 0x80, 10, 13, 0xc3]);
+  const w = await call("write_file", { path: "bin/blob.dat", content: bytes.toString("base64"), encoding: "base64" });
+  assert.equal(w.bytes, bytes.length);
+  assert.deepEqual(fs.readFileSync(path.join(root, "bin", "blob.dat")), bytes);
+  const all = await call("read_file", { path: "bin/blob.dat", encoding: "base64" });
+  assert.deepEqual(Buffer.from(all.content, "base64"), bytes);
+  assert.equal(all.size, bytes.length);
+  const win = await call("read_file", { path: "bin/blob.dat", encoding: "base64", byteOffset: 3, byteLength: 4 });
+  assert.deepEqual(Buffer.from(win.content, "base64"), bytes.subarray(3, 7));
+  assert.equal((await call("read_file", { path: "bin/blob.dat", encoding: "base64", byteOffset: 100 })).byteLength, 0);
+  const again = await call("write_file", { path: "bin/blob.dat", content: "", encoding: "base64" });
+  assert.equal(again.isError, true, "base64 writes still refuse to clobber");
+  assert.equal((await call("write_file", { path: "bin/blob.dat", content: "", encoding: "base64", overwrite: true })).bytes, 0);
+  // chmod bits are only observable through stat on POSIX filesystems.
+  if (process.platform !== "win32") {
+    fs.chmodSync(path.join(root, "hello.txt"), 0o640);
+    assert.equal((await call("stat_path", { path: "hello.txt" })).mode, 0o640);
+    const listed = await call("list_directory", { path: ".", limit: 5000 });
+    assert.equal(listed.entries.find((e) => e.name === "hello.txt").mode, 0o640);
+    fs.chmodSync(path.join(root, "hello.txt"), 0o644);
+  }
+});
+
 test("paths cannot climb out of the configured root", async () => {
   for (const p of ["../escape.txt", "sub/../../escape.txt"]) {
     const r = await call("write_file", { path: p, content: "nope" });

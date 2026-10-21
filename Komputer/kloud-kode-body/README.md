@@ -108,6 +108,17 @@ node server.mjs http
 命令输出先尝试严格 UTF-8 解码，失败后尝试系统控制台编码，并报告所用编码。
 日志超过上限时保留开头和结尾，注明省略的字节数。默认输出上限为 256 KiB，文件读取上限为 8 MiB。
 
+`run_command` 和 `start_process` 的 `shell` 可选 `default`（Windows 上是 cmd）、`cmd`、`powershell`、`pwsh`、
+`bash`、`sh`、`wsl`；`system_info` 的 `availableShells` 列出这台电脑上有的。Windows 上 `bash` 指 Git for Windows 的 bash，
+不会用到 System32 里 WSL 的 `bash.exe`；`wsl` 运行 `wsl.exe -e bash -c`。
+PowerShell 命令不需要再套一层引号：pwsh 经 `-EncodedCommand` 传入（很长的命令写成临时 `.ps1`），
+Windows PowerShell 5.1 总是写成临时 `.ps1`，因为它在 `-EncodedCommand` 下把错误输出成 CLIXML。
+错误是纯文本，没有进度条，表格按 4096 列输出、不在 80 列处折行，退出码与 bash 一样取最后一条语句
+（失败的外部程序带回自己的退出码）。`consoleUtf8`（默认 `true`）让 PowerShell 和 cmd 的输出用 UTF-8：
+cmd 先执行 `chcp 65001`，再在新启动的 cmd 里运行命令，因为 cmd 只在启动时读取代码页。
+设为 `false` 时保留系统代码页，比如 GBK，再按上面的方式解码。
+`start_process` 可传 `idleTimeoutMs`：超过这么久没有人读写，进程就被结束，调用方断开后不会一直留着。
+
 ## 连接本机的其他 MCP
 
 先在本机安装并测试好对应 MCP，再把它的启动命令加入 Body 配置的 `mcpServers`。

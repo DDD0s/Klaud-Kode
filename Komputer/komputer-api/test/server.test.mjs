@@ -56,6 +56,21 @@ function sseEvents(text) {
     .filter(Boolean);
 }
 
+const listenable = (port) => new Promise((resolve) => {
+  const s = http.createServer();
+  s.once("error", () => resolve(false));
+  s.listen(port, "127.0.0.1", () => s.close(() => resolve(true)));
+});
+
+/** Two consecutive free ports, below Linux's ephemeral range so other tests' listen(0) cannot take them. */
+async function freePortPair() {
+  for (let i = 0; i < 50; i++) {
+    const port = 20000 + Math.floor(Math.random() * 12000);
+    if ((await listenable(port)) && (await listenable(port + 1))) return port;
+  }
+  throw new Error("no free port pair");
+}
+
 before(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "komputer-test-"));
   fs.mkdirSync(path.join(tmp, "state"));
@@ -65,7 +80,7 @@ before(async () => {
     setTimeout(() => res.end('{"ok":true}'), 200);
   });
   await new Promise((r) => healthSrv.listen(0, "127.0.0.1", r));
-  const port = 20000 + Math.floor(Math.random() * 20000);
+  const port = await freePortPair();
   base = `http://127.0.0.1:${port}`;
   server = spawn(process.execPath, [path.join(here, "..", "server.mjs")], {
     env: {

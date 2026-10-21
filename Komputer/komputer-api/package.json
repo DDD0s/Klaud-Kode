@@ -1,6 +1,6 @@
 {
   "name": "kloud-kode-api",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "private": true,
   "description": "Kloud Kode by Kosmolopic — 用官方 Claude Code 提供 OpenAI / Anthropic 兼容 API",
   "type": "module",
@@ -9,7 +9,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test test/server.test.mjs test/claude-env.test.mjs test/reliability.test.mjs test/naming.test.mjs test/client-tools.test.mjs test/public-http.test.mjs",
+    "test": "node --test test/server.test.mjs test/claude-env.test.mjs test/reliability.test.mjs test/naming.test.mjs test/client-tools.test.mjs test/public-http.test.mjs test/claude-regression.test.mjs test/antigravity.test.mjs test/muse.test.mjs test/backends.test.mjs test/responses.test.mjs test/real-cli.test.mjs",
     "start": "node server.mjs"
   },
   "dependencies": {

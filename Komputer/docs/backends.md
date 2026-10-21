@@ -259,10 +259,11 @@ UNC 路径在 `unc/<主机>/...` 下）。挂载点设为 `/mnt` 时与 WSL 的 
 
 | 用真实程序验证 | 只用替身或模拟验证 | 假设 |
 | --- | --- | --- |
-| agy 1.4.3 系统提示里的 linux、bash 和工作区路径；规则文件的位置和优先级；`.agents/rules` 无 frontmatter 不读 | Windows Body 由真实 Body 加一层代理模拟（`test/helpers.mjs` 的 `windowsBody`）：报告 win32 和 `C:\` 根目录，用 pwsh 执行 PowerShell，输出改成 CRLF | Windows PowerShell 5.1、cmd 的 `chcp 65001`、Git Bash 的行为（CI 的 `workstation-windows` 任务在真实 Windows 上跑 `test/windows-host.test.mjs`） |
-| 真实 agy 的 `<user_computer>` 说明到达模型；`run_command` 在（模拟的）Windows 上运行 PowerShell，退出码、工作目录、`ls -la` 的翻译、输出没有 `\r\r\n` | 替身 agy 的完整回合：说明内容、POSIX 回退、Git Bash 分支 | 已登录工具集（`view_file`、`write_to_file`、`replace_file_content` 等）的参数名；hook 按已知参数名和以 path / file / dir 结尾的参数名处理 |
-| 真实 agy 的 `read_file` 经 hook 和挂载读到 `C:\` 下的文件；`edit_file` 用 LF 目标改 CRLF 文件后仍是 CRLF；`D:\` 被拒绝 | GBK 输出的解码（单元测试） | 模型在有说明的情况下会改写 PowerShell；实际效果要在已登录的 agy 上观察 |
-| pwsh 7.4 的包装：退出码、UTF-8、纯文本错误、表格不折行、点源后变量和函数可用、外部程序和 `Read-Host` 读 stdin | `idleTimeoutMs` 租约 | 真实 Windows 上 `taskkill /t` 结束整棵树、FUSE 经 Body 访问 NTFS 的错误码 |
+| agy 1.4.3 系统提示里的 linux、bash 和工作区路径；规则文件的位置和优先级；`.agents/rules` 无 frontmatter 不读 | Windows Body 由真实 Body 加一层代理模拟（`test/helpers.mjs` 的 `windowsBody`）：报告 win32 和 `C:\` 根目录，用 pwsh 执行 PowerShell，输出改成 CRLF | 已登录工具集（`view_file`、`write_to_file`、`replace_file_content` 等）的参数名；hook 按已知参数名和以 path / file / dir 结尾的参数名处理 |
+| 真实 agy 的 `<user_computer>` 说明到达模型；`run_command` 在（模拟的）Windows 上运行 PowerShell，退出码、工作目录、`ls -la` 的翻译、输出没有 `\r\r\n` | 替身 agy 的完整回合：说明内容、POSIX 回退、Git Bash 分支 | 模型在有说明的情况下会改写 PowerShell；实际效果要在已登录的 agy 上观察 |
+| 真实 agy 的 `read_file` 经 hook 和挂载读到 `C:\` 下的文件；`edit_file` 用 LF 目标改 CRLF 文件后仍是 CRLF；`D:\` 被拒绝 | GBK 输出的解码（单元测试）；`idleTimeoutMs` 租约（Linux） | FUSE 经真实 Windows Body 访问 NTFS：文件被占用、非法文件名、大小写的错误码 |
+| Body 在 GitHub 的 Windows 主机上（CI 的 `workstation-windows`，`test/windows-host.test.mjs`）：找到 cmd、Windows PowerShell 5.1、pwsh 和 Git Bash（不是 WSL 的 `bash.exe`）；两种 PowerShell 的退出码、UTF-8（含外部程序）、纯文本错误、Windows 工作目录、长文件名表格不折行也不补空格；cmd 在 65001 下输出中文、引号里的 `&` 和 `!` 原样保留；Git Bash 的退出码；交互进程经 stdin 回答 `Read-Host`，`stop_process` 结束它 | | GitHub 主机是英文系统；中文系统（代码页 936）上 `consoleUtf8: false` 时的 GBK 输出只有单元测试 |
+| pwsh 7.4（Linux）的包装：退出码、UTF-8、纯文本错误、表格不折行、点源后变量和函数可用、外部程序和 `Read-Host` 读 stdin | | WSL 作为 shell（主机上没有发行版） |
 
 **Claude。** 没有改。Claude 的 Body 回合本来就用 Body 的 MCP 工具，`system_info` 会报告 Windows 和 `availableShells`，
 新的 PowerShell 包装和 `idleTimeoutMs` 也对它生效。要让 Claude 的内置 Bash 和文件工具也在 Windows 上执行，可以用

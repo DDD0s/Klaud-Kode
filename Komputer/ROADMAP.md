@@ -14,7 +14,7 @@
   还要在已登录的主机上确认：已登录工具集（`view_file`、`list_dir`、`grep_search`、`find_by_name`）的参数名和挂载上的速度，
   长时间运行的命令与 `command_status`。
 - Windows 用户电脑：每回合的 `<user_computer>` 说明、PowerShell 执行、`C:\` 路径映射、CRLF 编辑和 bash 回退已在模拟的
-  Windows Body 上用真实 agy 跑通，Body 的 shell 在 CI 的 Windows 主机上测试。还要在真实 Windows 电脑上确认：
+  Windows Body 上用真实 agy 跑通，Body 的 cmd、Windows PowerShell 5.1、pwsh 和 Git Bash 在 CI 的 Windows 主机上测试。还要在用户的 Windows 电脑上确认：
   经 FUSE 访问 NTFS（文件被占用、非法文件名、大小写），模型在已登录 agy 下是否稳定写 PowerShell，以及要不要加规则文件。
 - Claude Code 的 Bash 和文件工具原则上可以用同样的 shell 替身、挂载和 PreToolUse hook 转到用户电脑，需要先验证再决定是否改动。
 - agy 每次调用要 11–17 秒、约 6.6k token 的基础提示。可以研究为每个对话保留一个通过 stdin 多轮的 agy 进程，

@@ -12,12 +12,15 @@
 // edits $HOME/.gemini/config/mcp_config.json (the only MCP config agy reads),
 // and every run starts the enabled stdio servers with agy's own environment
 // and cwd, then sends server/discover, falls back to initialize, and lists
-// tools. Prompt keywords drive behaviour, like fake-claude.mjs.
+// tools. Built-in tools also work like the real CLI (verified with agy 1.4.3):
+// PreToolUse hooks from $HOME/.gemini/config/hooks.json run first,
+// run_command is `bash -c` looked up on PATH, and file tools work in-process.
+// Prompt keywords drive behaviour, like fake-claude.mjs.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
 const args = process.argv.slice(2);
@@ -163,6 +166,8 @@ async function main() {
     JSON.stringify({ args, prompt, cwd: process.cwd(), envKeys: Object.keys(process.env).sort(),
       mcpTools: Object.fromEntries(Object.entries(mcp).map(([n, s]) => [n, s.error ? `error: ${s.error}` : s.tools.map((t) => t.name)])),
       bridgeFile, bridgeFileMode: bridgeFile && fs.existsSync(bridgeFile) ? fs.statSync(bridgeFile).mode & 0o777 : null,
+      target: bridgeFile && fs.existsSync(bridgeFile) ? (({ policy, remote }) => ({ policy, remote: remote && { ...remote, server: remote.server && { url: remote.server.url } } }))(JSON.parse(fs.readFileSync(bridgeFile, "utf8"))) : null,
+      pathHead: String(process.env.PATH || "").split(path.delimiter)[0],
       noProxy: process.env.NO_PROXY || null, gitCeiling: process.env.GIT_CEILING_DIRECTORIES || null }) + "\n"
   );
   try {
@@ -228,9 +233,49 @@ async function turn(prompt, mcp) {
     await say("checking");
     await toolStep("call_mcp_tool", { ServerName: "komputer_use", ToolName: "run_command" }, "ok");
   }
+  // Built-in tools as agy 1.4.3 runs them: PreToolUse hooks first, then run_command as
+  // `bash -c` found on PATH and file tools in-process. BUILTIN<<cmd>>, READ<<path>>, WRITE<<path>>.
+  const builtin = async (name, parameters, exec) => {
+    stepOut({ step_index: step++, state: "DONE", step_type: "agent_response", usage });
+    stepOut({ step_index: step, state: "ACTIVE", step_type: "tool", tool_name: name, tool_info: { name, parameters } });
+    const hooked = process.env.FAKE_AGY_NO_HOOKS ? { args: parameters } : preToolHooks(name, parameters, id, step);
+    const record = { name, args: hooked.args };
+    if (hooked.denied) {
+      record.error = hooked.denied;
+      stepOut({ step_index: step, state: "ERROR", step_type: "tool", tool_name: name, tool_info: { name, parameters, error: { type: "TOOL_ERROR", message: hooked.denied } } });
+    } else {
+      record.output = await exec(hooked.args);
+      stepOut({ step_index: step, state: "DONE", step_type: "tool", tool_name: name, tool_info: { name, parameters: hooked.args, output: record.output } });
+    }
+    fs.appendFileSync(path.join(stateDir, "agy-tools.jsonl"), JSON.stringify(record) + "\n");
+    step++;
+  };
   if (prompt.includes("BUILTIN")) {
-    fs.appendFileSync(path.join(stateDir, "agy-host-commands.jsonl"), JSON.stringify({ command: "ls -la", cwd: process.cwd() }) + "\n");
-    await toolStep("run_command", { CommandLine: "ls -la" }, "Command exited with code 0.\n\nCommand output:\ntotal 0\r\n");
+    const command = /BUILTIN<<([\s\S]*?)>>/.exec(prompt)?.[1] || "ls -la";
+    await builtin("run_command", { CommandLine: command, toolSummary: "run", WaitMsBeforeAsync: 5000 }, async ({ CommandLine }) => {
+      if (!args.includes("--dangerously-skip-permissions") && !allowRules().includes("command(*)")) {
+        process.stderr.write('a tool required the "command" permission that headless mode cannot prompt for, so it was auto-denied\n');
+        return "";
+      }
+      fs.appendFileSync(path.join(stateDir, "agy-host-commands.jsonl"), JSON.stringify({ command: CommandLine, cwd: process.cwd() }) + "\n");
+      const r = spawnSync("bash", ["-c", CommandLine], { cwd: process.cwd(), env: process.env, encoding: "utf8" });
+      return `Command exited with code ${r.status ?? 1}.\n\nCommand output:\n${(r.stdout || "") + (r.stderr || "")}`.replace(/\r?\n/g, "\r\n");
+    });
+  }
+  for (const m of prompt.matchAll(/READ<<([^>]*)>>/g)) {
+    await builtin("read_file", { Path: m[1] }, async ({ Path }) => {
+      try {
+        return fs.readFileSync(path.resolve(Path), "utf8");
+      } catch (e) {
+        return `error: ${e.code}`;
+      }
+    });
+  }
+  for (const m of prompt.matchAll(/WRITE<<([^>]*)>>/g)) {
+    await builtin("write_file", { Path: m[1], Content: "written by agy\n" }, async ({ Path, Content }) => {
+      fs.writeFileSync(path.resolve(Path), Content);
+      return "";
+    });
   }
   const reply = resumed ? `prev=${previous}|now=${prompt}` : `agy:${prompt}`;
   if (prompt.includes("NO_DELTAS")) {
@@ -239,6 +284,48 @@ async function turn(prompt, mcp) {
   }
   await say(reply);
   out({ event: "result", result: { conversation_id: id, status: "SUCCESS", response: reply, error: "", duration_seconds: 1, num_turns: 1, usage } });
+}
+
+function allowRules() {
+  try {
+    const allow = JSON.parse(fs.readFileSync(path.join(os.homedir(), ".gemini", "antigravity-cli", "settings.json"), "utf8"))?.permissions?.allow;
+    return Array.isArray(allow) ? allow : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * ~/.gemini/config/hooks.json PreToolUse hooks, as agy 1.4.3 runs them: `sh -c` in the config
+ * directory, the call on stdin; empty output is no opinion, a decision of "deny" (or none at all)
+ * denies, "allow" with overwrite merges new arguments.
+ */
+function preToolHooks(name, args, conversationId, stepIdx) {
+  const dir = path.join(os.homedir(), ".gemini", "config");
+  let config = {};
+  try {
+    config = JSON.parse(fs.readFileSync(path.join(dir, "hooks.json"), "utf8"));
+  } catch {
+    return { args };
+  }
+  let current = args;
+  for (const group of Object.values(config)) {
+    for (const rule of group?.PreToolUse || []) {
+      if (!new RegExp(rule.matcher || ".*").test(name)) continue;
+      for (const hook of rule.hooks || []) {
+        const input = JSON.stringify({ toolCall: { name, args: current }, stepIdx, conversationId, workspacePaths: [process.cwd()],
+          artifactDirectoryPath: path.join(os.homedir(), ".gemini", "antigravity-cli", "brain", conversationId) });
+        const r = spawnSync("sh", ["-c", hook.command], { cwd: dir, input, encoding: "utf8", env: process.env, timeout: (hook.timeout || 10) * 1000 });
+        const text = (r.stdout || "").trim();
+        if (!text) continue;
+        const v = JSON.parse(text);
+        if (v.decision === "ask") continue;
+        if (v.decision !== "allow") return { args: current, denied: `tool call denied by pre-tool hook: ${v.reason || ""}` };
+        if (v.overwrite) current = { ...current, ...v.overwrite };
+      }
+    }
+  }
+  return { args: current };
 }
 
 async function clientTools(id, prompt, mcp) {

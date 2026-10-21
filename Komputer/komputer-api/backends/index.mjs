@@ -11,7 +11,7 @@ const ALIASES = { claude: "claude", "claude-code": "claude", agy: "antigravity",
  * Backends enabled by KOMPUTER_BACKENDS (default "claude", which keeps the
  * service exactly as it was before backends existed).
  */
-export function createBackends(env, { workspaceRoot, instanceId, claudeCwd, mcpConfig, systemPromptFile }) {
+export function createBackends(env, { workspaceRoot, instanceId, claudeCwd, mcpConfig, systemPromptFile, log = () => {} }) {
   const names = [...new Set(list(env.KOMPUTER_BACKENDS, "claude").map((n) => {
     const name = ALIASES[n.toLowerCase()];
     if (!name) throw new Error(`KOMPUTER_BACKENDS: unknown backend "${n}" (use claude, antigravity, muse)`);
@@ -31,10 +31,11 @@ export function createBackends(env, { workspaceRoot, instanceId, claudeCwd, mcpC
         taskModel: env.KOMPUTER_TASK_MODEL ?? "haiku",
         systemPromptFile,
       }),
-    antigravity: () =>
-      antigravityBackend({
+    antigravity: () => {
+      const cwd = path.resolve(env.KOMPUTER_AGY_CWD || path.join(workspaceRoot, `${instanceId}-agy`));
+      return antigravityBackend({
         bin: env.AGY_BIN || "agy",
-        cwd: path.resolve(env.KOMPUTER_AGY_CWD || path.join(workspaceRoot, `${instanceId}-agy`)),
+        cwd,
         mcpConfig,
         bodyMcp: env.KOMPUTER_BODY_MCP || "komputer_use",
         modelId: env.KOMPUTER_AGY_MODEL_ID || "komputer-agy",
@@ -45,9 +46,15 @@ export function createBackends(env, { workspaceRoot, instanceId, claudeCwd, mcpC
         taskModel: env.KOMPUTER_AGY_TASK_MODEL ?? "gemini-3.8-flash-low",
         permissions: (env.KOMPUTER_AGY_PERMISSIONS || "settings").toLowerCase(),
         mcpSetup: (env.KOMPUTER_AGY_MCP_SETUP || "auto").toLowerCase(),
-        builtinGuard: (env.KOMPUTER_AGY_BUILTIN_GUARD || "stop").toLowerCase(),
+        builtinGuard: (env.KOMPUTER_AGY_BUILTIN_GUARD || "warn").toLowerCase(),
+        remoteTools: (env.KOMPUTER_AGY_REMOTE_TOOLS || "auto").toLowerCase(),
+        remoteShell: env.KOMPUTER_AGY_REMOTE_SHELL || "",
+        remoteMount: path.resolve(env.KOMPUTER_AGY_REMOTE_MOUNT || path.join(cwd, "remote")),
+        python: env.KOMPUTER_AGY_PYTHON || "python3",
         extraArgs: splitArgs(env.KOMPUTER_AGY_EXTRA_ARGS),
-      }),
+        log: (m) => log(`antigravity: ${m}`),
+      });
+    },
     muse: () =>
       museBackend({
         bin: env.MUSE_BIN || "muse",
@@ -72,8 +79,11 @@ export function createBackends(env, { workspaceRoot, instanceId, claudeCwd, mcpC
   if (byName.has("antigravity") && !["auto", "off"].includes((env.KOMPUTER_AGY_MCP_SETUP || "auto").toLowerCase())) {
     throw new Error("KOMPUTER_AGY_MCP_SETUP must be auto or off");
   }
-  if (byName.has("antigravity") && !["stop", "warn", "off"].includes((env.KOMPUTER_AGY_BUILTIN_GUARD || "stop").toLowerCase())) {
+  if (byName.has("antigravity") && !["stop", "warn", "off"].includes((env.KOMPUTER_AGY_BUILTIN_GUARD || "warn").toLowerCase())) {
     throw new Error("KOMPUTER_AGY_BUILTIN_GUARD must be stop, warn or off");
+  }
+  if (byName.has("antigravity") && !["auto", "all", "commands", "off"].includes((env.KOMPUTER_AGY_REMOTE_TOOLS || "auto").toLowerCase())) {
+    throw new Error("KOMPUTER_AGY_REMOTE_TOOLS must be auto, all, commands or off");
   }
   const ids = new Set();
   for (const b of backends) {

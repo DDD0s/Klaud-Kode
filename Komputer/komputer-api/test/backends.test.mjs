@@ -6,7 +6,9 @@ import { fileURLToPath } from "node:url";
 import { createBackends } from "../backends/index.mjs";
 import os from "node:os";
 import { spawn } from "node:child_process";
-import { AGY_BRIDGE, agyArgs, agyParser, agyUsage } from "../backends/antigravity.mjs";
+import { AGY_BRIDGE, AGY_HOOK, agyArgs, agyParser, agyUsage } from "../backends/antigravity.mjs";
+import { decide } from "../backends/agy-hook.mjs";
+import { commandOf, outputMapper, remoteCwd, toRemote } from "../backends/agy-bash-shim.mjs";
 import { museMcpOverrides, museParser } from "../backends/muse.mjs";
 import { buildChildEnv, buildClaudeEnv, AGY_KEEP, MUSE_KEEP } from "../claude-env.mjs";
 
@@ -231,4 +233,79 @@ test("agy MCP bridge: stdio targets are proxied, unreachable HTTP targets fail p
   const empty = await bridgeSession(null);
   assert.deepEqual((await empty.ask(1, "tools/list")).result, { tools: [] });
   empty.close();
+});
+
+test("agy hook: remote turns keep paths on the user's computer, island turns allow only agy-internal and MCP tools", () => {
+  const home = "/home/svc";
+  const call = (name, args = {}, extra = {}) => ({ toolCall: { name, args }, conversationId: "c1", ...extra });
+  const remote = { mode: "remote", mount: "/ws/remote", root: "/home/user/project", files: true, commands: true };
+  const d = (input, policy) => decide(input, policy, { home });
+  assert.equal(d(call("run_command", { CommandLine: "ls -la" }), remote), null, "no opinion: agy's own permission rules apply");
+  assert.equal(d(call("read_file", { Path: "/ws/remote/a.txt" }), remote), null);
+  assert.equal(d(call("read_file", { Path: "src/a.txt" }), remote), null, "relative paths resolve inside the workspace");
+  assert.deepEqual(d(call("read_file", { Path: "/home/user/project/src/a.txt" }), remote),
+    { decision: "allow", overwrite: { Path: "/ws/remote/src/a.txt" } }, "a path the model saw in command output moves onto the mount");
+  assert.equal(d(call("write_file", { Path: "/home/svc/.gemini/antigravity-cli/brain/c1/plan.md" }), remote), null, "agy's own artifacts stay local");
+  assert.match(d(call("read_file", { Path: "/etc/passwd" }), remote).reason, /^\/etc\/passwd is on the service host, outside the user's workspace at \/ws\/remote/);
+  assert.match(d(call("read_file", { Path: "~/.ssh/id_ed25519" }), remote).reason, /service host/);
+  assert.match(d(call("read_file", { Path: "/ws/remote/../secret" }), remote).reason, /service host/);
+  assert.match(d(call("browser_navigate", { Url: "x" }), remote).reason, /would run on the service host/);
+  assert.equal(d(call("search_web", { query: "x" }), remote), null);
+  assert.match(d(call("some_future_tool"), remote).reason, /not available in this conversation/);
+
+  const commandsOnly = { ...remote, mount: "/ws/body", files: false };
+  assert.match(d(call("read_file", { Path: "/ws/body/a.txt" }), commandsOnly).reason, /cannot reach here\. Use run_command/);
+  assert.equal(d(call("write_file", { Path: "/x/art/task.md" }, { artifactDirectoryPath: "/x/art" }), commandsOnly), null);
+  assert.equal(d(call("run_command", { CommandLine: "cat /etc/hostname" }), commandsOnly), null, "command lines are not paths: they run remotely");
+
+  assert.match(d(call("run_command", { CommandLine: "ls" }), { mode: "island" }).reason, /would act on the service host/);
+  assert.equal(d(call("call_mcp_tool", { ServerName: "komputer_use" }), { mode: "island" }), null);
+  assert.equal(d(call("run_command"), { mode: "local" }), null);
+  assert.equal(d(call("run_command"), null), null, "outside the service's turns the hook has no opinion");
+});
+
+test("agy hook process: prints nothing without an opinion, a verdict otherwise", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agy-hook-"));
+  const target = path.join(dir, "t.json");
+  fs.writeFileSync(target, JSON.stringify({ policy: { mode: "island" } }));
+  const hook = (env, input) => new Promise((resolve) => {
+    const c = spawn(process.execPath, [AGY_HOOK], { env: { PATH: process.env.PATH, ...env }, stdio: ["pipe", "pipe", "inherit"] });
+    let out = "";
+    c.stdout.on("data", (d) => (out += d));
+    c.on("exit", () => resolve(out));
+    c.stdin.end(JSON.stringify(input));
+  });
+  const input = { toolCall: { name: "run_command", args: { CommandLine: "ls" } } };
+  assert.equal(await hook({}, input), "", "agy run by hand: no opinion");
+  assert.equal(JSON.parse(await hook({ KOMPUTER_AGY_MCP_FILE: target }, input)).decision, "deny");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("agy bash shim: argv parsing, path mapping in both directions, cwd on the Body", () => {
+  assert.equal(commandOf(["-c", "ls -la"]), "ls -la");
+  assert.equal(commandOf(["--norc", "-lc", "echo hi", "bash"]), "echo hi");
+  assert.equal(commandOf(["-o", "pipefail", "-c", "x"]), "x");
+  assert.equal(commandOf(["script.sh"]), null, "scripts and interactive shells are not agy commands");
+  assert.equal(commandOf([]), null);
+  const remote = { mount: "/ws/remote", root: "/home/user/project" };
+  assert.equal(toRemote("cat /ws/remote/a.txt > /ws/remote/b", remote), "cat /home/user/project/a.txt > /home/user/project/b");
+  assert.equal(toRemote("dir C:\\x", { mount: "/ws", root: "C:\\Users\\u" }), "dir C:\\x", "Windows roots are not rewritten");
+  assert.equal(remoteCwd("/ws/remote/src/lib", remote), "src/lib");
+  assert.equal(remoteCwd("/elsewhere", remote), ".");
+  const out = outputMapper(remote);
+  const chunks = ["/home/user/pro", "ject/a\n/home/u", "ser/project"];
+  assert.equal(chunks.map((c) => out.push(c)).join("") + out.end(), "/ws/remote/a\n/ws/remote", "a root split across chunks is still mapped");
+});
+
+test("agy parser: under a remote policy only tools the hook would deny count as host tools", () => {
+  const policy = { mode: "remote", mount: "/ws", root: "/r", files: false, commands: true };
+  const tool = (name, parameters = {}) => JSON.stringify({ event: "step_update", step_update: { step_index: 2, state: "DONE", step_type: "tool", tool_name: name, tool_info: { name, parameters } } });
+  const ok = run(agyParser, { mode: "new" }, [tool("run_command", { CommandLine: "ls" })], "", { policy, guard: "stop", hooked: true });
+  assert.equal(ok.seen.bail, null, "run_command ran on the user's computer");
+  const bad = run(agyParser, { mode: "new" }, [tool("view_file", { AbsolutePath: "/etc/hosts" })], "", { policy, guard: "stop", hooked: true });
+  assert.equal(bad.seen.bail?.type, "builtin_tool_blocked");
+  const active = JSON.stringify({ event: "init", conversation_id: "c", init: { permission_mode: "always-proceed" } });
+  const pending = tool("view_file", { AbsolutePath: "/etc/hosts" }).replace('"DONE"', '"ACTIVE"');
+  assert.equal(run(agyParser, { mode: "new" }, [active, pending], "", { policy, guard: "stop", hooked: true }).seen.bail, null, "the hook still gets to deny an ACTIVE step");
+  assert.equal(run(agyParser, { mode: "new" }, [active, pending], "", { policy, guard: "stop" }).seen.bail?.type, "builtin_tool_blocked");
 });

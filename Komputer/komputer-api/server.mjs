@@ -152,6 +152,7 @@ const backends = createBackends(env, {
   claudeCwd: CLAUDE_CWD,
   mcpConfig: MCP_CONFIG,
   systemPromptFile: SYSTEM_PROMPT_FILE,
+  log: (...a) => log(...a),
 });
 /** Echoed as `model` when the client sends none. */
 const MODEL_ID = backends.default.defaultId;
@@ -2144,6 +2145,7 @@ async function shutdown(sig) {
   log(`shutting down (${sig})`);
   for (const child of activeChildren) child.kill("SIGTERM");
   harnessGateway.close().catch((e) => log(`tool shutdown error: ${privateErrorDetail(e)}`));
+  await Promise.all(backends.list.map((b) => b.close?.())).catch((e) => log(`backend shutdown error: ${e.message}`));
   try {
     await saveSessionStore();
   } catch (e) {

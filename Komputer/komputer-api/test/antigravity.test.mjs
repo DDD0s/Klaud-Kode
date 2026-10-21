@@ -4,9 +4,12 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { apiFixture } from "./helpers.mjs";
+import { apiFixture, haveBody, realBody } from "./helpers.mjs";
+import { fuseMissing } from "../backends/antigravity.mjs";
 
-const BRIDGE = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "backends", "agy-mcp-bridge.mjs");
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const BRIDGE = path.join(HERE, "..", "backends", "agy-mcp-bridge.mjs");
+const HOOK = path.join(HERE, "..", "backends", "agy-hook.mjs");
 
 const NOTE_START = "You work on the user's computer.";
 const BASE = ["--input-format", "stream-json", "--output-format", "stream-json"];
@@ -35,7 +38,8 @@ async function bodyServer(t) {
 async function agyFixture(t, env = {}, { prepare = () => {} } = {}) {
   const body = await bodyServer(t);
   const f = await apiFixture(t, {
-    env: { KOMPUTER_SKIP_TUNNEL: "1", KOMPUTER_BACKENDS: "claude,antigravity", ...env },
+    // "commands" keeps these tests off FUSE, whether or not this host could mount.
+    env: { KOMPUTER_SKIP_TUNNEL: "1", KOMPUTER_BACKENDS: "claude,antigravity", KOMPUTER_AGY_REMOTE_TOOLS: "commands", ...env },
     prepare: (dir) => {
       fs.writeFileSync(path.join(dir, ".mcp.json"), JSON.stringify({ mcpServers: { komputer_use: { type: "http", url: body.url, headers: { Authorization: "Bearer body-secret" } } } }));
       return prepare(dir);
@@ -70,7 +74,14 @@ test("agy: routed by model id, session created then resumed with --conversation"
   assert.equal(c.cwd, fs.realpathSync(path.join(f.dir, "agy-ws", "body")));
   assert.equal(c.gitCeiling, fs.realpathSync(path.join(f.dir, "agy-ws")));
   assert.deepEqual(c.mcpTools, { komputer_use: ["system_info"] }, "body tools reach agy through the global bridge entry");
-  assert.deepEqual(f.body.seen.map((s) => s.method).slice(0, 4), ["server/discover", "initialize", "notifications/initialized", "tools/list"]);
+  const methods = f.body.seen.map((s) => s.method);
+  assert.deepEqual(methods.slice(0, 3), ["initialize", "notifications/initialized", "tools/call"], "the service asks the Body for system_info (its root)");
+  assert.deepEqual(methods.slice(methods.indexOf("server/discover"), methods.indexOf("server/discover") + 4),
+    ["server/discover", "initialize", "notifications/initialized", "tools/list"]);
+  const ws = fs.realpathSync(path.join(f.dir, "agy-ws", "body"));
+  assert.deepEqual(c.target.policy, { mode: "remote", mount: ws, root: null, files: false, commands: true }, "Body turns run agy's own tools on the user's computer");
+  assert.deepEqual(c.target.remote, { server: { url: f.body.url }, mount: ws, root: null, shell: "bash" });
+  assert.equal(c.pathHead, path.join(f.dir, "agy-ws", "shim"), "the bash shim comes first on agy's PATH");
   assert.ok(f.body.seen.every((s) => s.auth === "Bearer body-secret"));
   assert.equal(f.body.seen.at(-1).session, "body-session-1", "the bridge keeps the MCP session id");
   assert.equal(c.bridgeFileMode, 0o600);
@@ -171,7 +182,8 @@ test("agy: attachments, task mode, permissions, extra args and effort handling",
   let c = f.agyCalls().at(-1);
   assert.deepEqual(c.args, [...BASE, "--dangerously-skip-permissions", "--model", "gemini-3.8-flash", "--add-dir", "/nonexistent-test-dir"]);
   assert.equal(c.cwd, fs.realpathSync(path.join(f.dir, "agy-ws", "plain")));
-  assert.equal(c.bridgeFile, null);
+  assert.deepEqual(c.target, { policy: { mode: "island" } }, "the target file only carries the hook policy");
+  assert.notEqual(c.pathHead, path.join(f.dir, "agy-ws", "shim"));
   assert.deepEqual(c.mcpTools, { komputer_use: [] }, "background tasks get no MCP tools: the bridge has no target");
 
   await chat(f, { model: "komputer-gemini-4-argon", reasoning_effort: "max", messages: [user("x")] });
@@ -241,6 +253,9 @@ test("agy: KOMPUTER_AGY_MCP_SETUP=off leaves the global config alone and startup
   assert.match(logs, /global server "stray" is enabled for every agy turn/);
   assert.doesNotMatch(logs, /"parked"/);
   assert.match(logs, /permissions\.allow/);
+  assert.match(logs, /the "komputer" PreToolUse hook is missing from ~\/\.gemini\/config\/hooks\.json/);
+  assert.match(logs, /add "command\(\*\)" to permissions\.allow/, "headless agy denies run_command without it");
+  assert.equal(fs.existsSync(path.join(f.dir, "home", ".gemini", "config", "hooks.json")), false);
 });
 
 test("agy: final text without deltas is still streamed, and unknown events are ignored", async (t) => {
@@ -268,26 +283,91 @@ test("agy: non-Gemini models keep the CLI's full effort range; slugs with an eff
   assert.deepEqual(f.agyCalls().at(-1).args.slice(4), ["--model", "gemini-3.8-flash-low"], "background tasks default to the cheapest Gemini");
 });
 
-test("agy: a built-in tool that ran on the service host stops island turns; KOMPUTER_AGY_BUILTIN_GUARD and KOMPUTER_BUILTIN_TOOLS relax it", async (t) => {
-  const f = await agyFixture(t, { KOMPUTER_AGY_PERMISSIONS: "skip" });
+test("agy: island turns never run agy's own tools: the hook denies them first, the guard (warn, or stop) catches any that ran", async (t) => {
+  const own = { PostToolUse: [{ matcher: ".*", hooks: [{ type: "command", command: "true" }] }] };
+  const f = await agyFixture(t, { KOMPUTER_AGY_PERMISSIONS: "skip", KOMPUTER_AGY_REMOTE_TOOLS: "off" }, {
+    prepare: (dir) => {
+      fs.mkdirSync(path.join(dir, "home", ".gemini", "config"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "home", ".gemini", "config", "hooks.json"), JSON.stringify({ mine: own }));
+    },
+  });
+  const hooks = JSON.parse(fs.readFileSync(path.join(f.dir, "home", ".gemini", "config", "hooks.json"), "utf8"));
+  assert.deepEqual(hooks.mine, own, "the operator's own hooks are kept");
+  assert.deepEqual(hooks.komputer.PreToolUse[0].hooks[0].command, `'${process.execPath}' '${HOOK}'`);
+  assert.match(f.logs(), /registered the "komputer" PreToolUse hook/);
   const r = await chat(f, { model: "komputer-agy", messages: [user("BUILTIN list files")] });
-  assert.equal(r.status, 502, r.text);
-  assert.equal(r.json().error.type, "builtin_tool_blocked");
-  assert.match(r.json().error.message, /service host instead of your computer/);
-  assert.match(f.logs(), /agy ran its built-in tool run_command on the service host \(permission_mode always-proceed\)/);
-  const s = await chat(f, { model: "komputer-agy", stream: true, messages: [user("BUILTIN SLOW again")] });
-  const events = sse(s.text);
-  assert.equal(events.at(-1).error?.type, "builtin_tool_blocked", "after the stream opened, the failure is reported in-stream");
-  assert.ok((await chat(f, { model: "komputer-agy", messages: [user("TOOL via mcp")] })).status === 200, "MCP tool steps are fine");
+  assert.equal(r.status, 200, r.text);
+  assert.match(f.calls("agy-tools.jsonl").at(-1).error, /^tool call denied by pre-tool hook: run_command is not available in this conversation/);
+  assert.deepEqual(f.calls("agy-host-commands.jsonl"), [], "nothing ran on the service host");
+  assert.doesNotMatch(f.logs(), /agy ran its built-in tool/);
+  assert.equal((await chat(f, { model: "komputer-agy", messages: [user("TOOL via mcp")] })).status, 200, "MCP tool steps are fine");
 
-  const warn = await agyFixture(t, { KOMPUTER_AGY_BUILTIN_GUARD: "warn", KOMPUTER_CHILD_ENV_EXTRA: "FAKE_AGY_PERMISSION_MODE", FAKE_AGY_PERMISSION_MODE: "always-proceed" });
+  // Without a hook that runs, the parser is the backstop: warn by default, stop on request.
+  const noHooks = { KOMPUTER_AGY_REMOTE_TOOLS: "off", KOMPUTER_CHILD_ENV_EXTRA: "FAKE_AGY_NO_HOOKS,FAKE_AGY_PERMISSION_MODE", FAKE_AGY_NO_HOOKS: "1" };
+  const warn = await agyFixture(t, { ...noHooks, FAKE_AGY_PERMISSION_MODE: "always-proceed" });
   const w = await chat(warn, { model: "komputer-agy", messages: [user("BUILTIN list files")] });
   assert.equal(w.status, 200, w.text);
-  assert.match(warn.logs(), /antigravity: WARNING: agy ran its built-in tool run_command on the service host/);
+  assert.match(warn.logs(), /antigravity: WARNING: agy ran its built-in tool run_command on the service host \(permission_mode always-proceed\)/);
   assert.match(warn.logs(), /always-proceed without --dangerously-skip-permissions/);
+  const stop = await agyFixture(t, { ...noHooks, KOMPUTER_AGY_PERMISSIONS: "skip", KOMPUTER_AGY_BUILTIN_GUARD: "stop" });
+  const s = await chat(stop, { model: "komputer-agy", messages: [user("BUILTIN list files")] });
+  assert.equal(s.status, 502, s.text);
+  assert.equal(s.json().error.type, "builtin_tool_blocked");
+  assert.match(s.json().error.message, /service host instead of your computer/);
+  const streamed = sse((await chat(stop, { model: "komputer-agy", stream: true, messages: [user("BUILTIN SLOW again")] })).text);
+  assert.equal(streamed.at(-1).error?.type, "builtin_tool_blocked", "after the stream opened, the failure is reported in-stream");
 
   const open = await agyFixture(t, { KOMPUTER_BUILTIN_TOOLS: "default", KOMPUTER_AGY_PERMISSIONS: "skip" });
-  const o = await chat(open, { model: "komputer-agy", messages: [user("BUILTIN list files")] });
-  assert.equal(o.status, 200, "Body turns that opted into built-in tools are not guarded");
-  assert.match(o.json().choices[0].message.content, /^agy:/);
+  const o = await chat(open, { model: "komputer-agy", messages: [user("BUILTIN<<echo local>>")] });
+  assert.equal(o.status, 200, "Body turns that opted into built-in tools on this host are not guarded");
+  assert.match(open.calls("agy-tools.jsonl").at(-1).output, /^Command exited with code 0\.\r\n\r\nCommand output:\r\nlocal\r\n$/);
+  assert.equal(open.calls("agy-host-commands.jsonl").length, 1);
+});
+
+test("agy: in Body turns run_command runs on the user's computer through the bash shim, file tools are kept off this host", { skip: !haveBody && "kloud-kode-body dependencies are not installed" }, async (t) => {
+  const body = await realBody(t);
+  const f = await agyFixture(t, { KOMPUTER_AGY_PERMISSIONS: "skip" }, { prepare: (dir) => fs.writeFileSync(path.join(dir, ".mcp.json"), body.mcpJson) });
+  const ws = fs.realpathSync(path.join(f.dir, "agy-ws", "body"));
+  const r = await chat(f, { model: "komputer-agy", messages: [user(`BUILTIN<<ls -la; pwd; cat ${body.root}/only-on-the-users-computer.txt; cd sub && pwd; exit 3>> READ<<${body.root}/sub/note.md>> READ<<${ws}/x>>`)] });
+  assert.equal(r.status, 200, r.text);
+  assert.equal(f.agyCalls().at(-1).target.policy.root, body.root, "the Body's root comes from system_info");
+  const [command, read, readWs] = f.calls("agy-tools.jsonl");
+  assert.equal(command.name, "run_command");
+  assert.match(command.output, /^Command exited with code 3\./, "the remote exit code reaches agy");
+  assert.match(command.output, /only-on-the-users-computer\.txt/, "ls -la lists the user's computer");
+  assert.match(command.output, /sub\r\n/);
+  assert.match(command.output, /hello from the user's computer/);
+  assert.ok(command.output.includes(`\r\n${ws}\r\nhello from the user's computer\r\n${ws}/sub\r\n`), "paths on the user's computer read as agy's workspace");
+  assert.ok(!command.output.includes(body.root), command.output);
+  assert.equal(f.calls("agy-host-commands.jsonl").length, 1, "agy started bash once ...");
+  assert.deepEqual(fs.readdirSync(ws), [], "... and it ran nothing in the service-side workspace");
+  assert.match(read.error, /The user's files are on their computer, which read_file cannot reach here\. Use run_command/);
+  assert.match(readWs.error, /read_file cannot reach here/, "without the mount, file tools are denied even inside the workspace");
+  assert.match(f.logs(), /agy remote tools \(commands\): run_command runs on the user's computer/);
+});
+
+const fuseGaps = await fuseMissing("python3");
+
+test("agy: with the FUSE mount, agy's workspace is the user's files: reads, writes and commands all reach the Body", { skip: !haveBody ? "kloud-kode-body dependencies are not installed" : fuseGaps.length ? `no FUSE here: ${fuseGaps.join(", ")}` : false }, async (t) => {
+  const body = await realBody(t);
+  const f = await agyFixture(t, { KOMPUTER_AGY_PERMISSIONS: "skip", KOMPUTER_AGY_REMOTE_TOOLS: "all" }, { prepare: (dir) => fs.writeFileSync(path.join(dir, ".mcp.json"), body.mcpJson) });
+  const mnt = path.join(f.dir, "agy-ws", "remote");
+  const r = await chat(f, { model: "komputer-agy", messages: [user(`BUILTIN<<pwd; ls>> READ<<${body.root}/sub/note.md>> READ<<sub/note.md>> WRITE<<${mnt}/from-agy.txt>> READ<</etc/hostname>>`)] });
+  assert.equal(r.status, 200, r.text);
+  const c = f.agyCalls().at(-1);
+  assert.equal(c.cwd, mnt, "agy's workspace is the mount");
+  assert.deepEqual(c.target.policy, { mode: "remote", mount: mnt, root: body.root, files: true, commands: true });
+  const [command, mapped, relative, host, write] = f.calls("agy-tools.jsonl");
+  assert.match(command.output, new RegExp(`Command output:\\r\\n${mnt}\\r\\nonly-on-the-users-computer\\.txt\\r\\nsub\\r\\n`));
+  assert.deepEqual(mapped.args, { Path: path.join(mnt, "sub", "note.md") }, "a path from command output is moved onto the mount");
+  assert.equal(mapped.output, "# note\n");
+  assert.equal(relative.output, "# note\n");
+  assert.equal(write.output, "");
+  assert.equal(fs.readFileSync(path.join(body.root, "from-agy.txt"), "utf8"), "written by agy\n", "the write landed on the user's computer");
+  assert.match(host.error, /\/etc\/hostname is on the service host, outside the user's workspace/);
+  assert.ok(fs.readFileSync("/proc/mounts", "utf8").includes(` ${mnt} fuse.komputer `));
+  f.child.kill("SIGTERM");
+  await f.exited;
+  for (let i = 0; i < 50 && fs.readFileSync("/proc/mounts", "utf8").includes(` ${mnt} `); i++) await new Promise((res) => setTimeout(res, 100));
+  assert.ok(!fs.readFileSync("/proc/mounts", "utf8").includes(` ${mnt} `), "the mount goes away with the service");
 });

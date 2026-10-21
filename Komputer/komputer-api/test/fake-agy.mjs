@@ -277,15 +277,6 @@ async function turn(prompt, mcp) {
       return "";
     });
   }
-  // edit_file as agy 1.4.3 does it: Target must match byte for byte; every occurrence is replaced.
-  for (const m of prompt.matchAll(/EDIT<<([^>]*)>>/g)) {
-    await builtin("edit_file", { Path: m[1], Target: "line one\nline two", Replacement: "LINE ONE\nLINE TWO" }, async ({ Path, Target, Replacement }) => {
-      const text = fs.readFileSync(path.resolve(Path), "utf8");
-      if (!text.includes(Target)) return "Encountered error in tool execution: target content not found in the file";
-      fs.writeFileSync(path.resolve(Path), text.split(Target).join(Replacement));
-      return "edited";
-    });
-  }
   const reply = resumed ? `prev=${previous}|now=${prompt}` : `agy:${prompt}`;
   if (prompt.includes("NO_DELTAS")) {
     out({ event: "result", result: { conversation_id: id, status: "SUCCESS", response: reply, error: "", num_turns: 1, usage } });

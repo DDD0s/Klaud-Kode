@@ -12,7 +12,6 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { isWindowsPath, toCrlf, windowsToMount } from "./windows.mjs";
 
 /** Tools that act inside agy itself, on MCP servers, or on nothing at all. */
 export const AGY_HOST_FREE = new Set(["call_mcp_tool", "ask_question", "ask_permission", "ask_custom_permission", "list_permissions",
@@ -51,8 +50,7 @@ const ownDirs = (input, home) =>
  * Decide one PreToolUse call (null: no opinion). policy.mode: "remote" (built-ins run on the
  * user's computer), "island" (only MCP and agy-internal tools), or "local" (no opinion).
  * A remote policy has mount (agy's workspace, standing for the Body root), root (the Body
- * root's own path), platform (the Body's), files (mount is the Body's files over FUSE) and
- * commands (the bash shim). On Windows, C:\... paths inside the root are rewritten to the mount.
+ * root's own path), files (mount is the Body's files over FUSE) and commands (the bash shim).
  */
 export function decide(input, policy, { home = os.homedir() } = {}) {
   const name = String(input?.toolCall?.name || "");
@@ -71,74 +69,17 @@ export function decide(input, policy, { home = os.homedir() } = {}) {
     const values = pathArgs(args).flatMap(([, v]) => [].concat(v));
     if (values.length && values.every((v) => (v.startsWith("/") || v.startsWith("~")) && own.some((d) => within(path.resolve(expand(v, home)), d)))) return null;
     return deny(`The user's files are on their computer, which ${name} cannot reach here. Use run_command (it runs on the user's computer), ` +
-      (policy.platform === "win32" ? "for example Get-Content, Get-ChildItem or Set-Content, or the komputer_use tools." : "for example cat, ls, sed or a here-document, or the komputer_use tools."));
+      "for example cat, ls, sed or a here-document, or the komputer_use tools.");
   }
   if (REMOTE_OK.has(name)) return null;
   return deny(`${name} is not available in this conversation.`);
 }
 
-/** Tools whose Target / TargetContent must match the file's text exactly. */
-const EDIT_TOOLS = new Set(["edit_file", "replace_file_content", "multi_replace_file_content"]);
-const WRITE_TOOLS = new Set(["write_file", "write_to_file"]);
-const EDIT_PAIRS = [["Target", "Replacement"], ["TargetContent", "ReplacementContent"]];
-const CONTENT_KEYS = ["Content", "CodeContent"];
-const MAX_EOL_PROBE = 4 * 1024 * 1024;
-
-function readText(file) {
-  try {
-    const st = fs.statSync(file);
-    return st.isFile() && st.size <= MAX_EOL_PROBE ? fs.readFileSync(file, "utf8") : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Line endings for edits of CRLF files: the model writes \n, and agy's edit tools match
- * byte for byte, so an LF Target misses a CRLF file (verified with agy 1.4.3). When only
- * the CRLF form of a Target is in the file, Target and Replacement become CRLF; a whole-file
- * write over a CRLF-only file keeps CRLF. Returns the arguments to overwrite.
- */
-export function lineEndingFixes(name, args, file) {
-  if (!file || !(EDIT_TOOLS.has(name) || WRITE_TOOLS.has(name))) return {};
-  const text = readText(file);
-  if (text === null || !text.includes("\r\n")) return {};
-  const out = {};
-  if (WRITE_TOOLS.has(name)) {
-    if (/(^|[^\r])\n/.test(text)) return {};
-    for (const k of CONTENT_KEYS) if (typeof args[k] === "string" && /(^|[^\r])\n/.test(args[k])) out[k] = toCrlf(args[k]);
-    return out;
-  }
-  const fixPair = (obj) => {
-    let changed = null;
-    for (const [t, r] of EDIT_PAIRS) {
-      if (typeof obj?.[t] !== "string" || !obj[t].includes("\n") || text.includes(obj[t])) continue;
-      const target = toCrlf(obj[t]);
-      if (!text.includes(target)) continue;
-      changed = { ...(changed || obj), [t]: target, ...(typeof obj[r] === "string" ? { [r]: toCrlf(obj[r]) } : {}) };
-    }
-    return changed;
-  };
-  const top = fixPair(args);
-  if (top) for (const [t, r] of EDIT_PAIRS) for (const k of [t, r]) if (top[k] !== args[k]) out[k] = top[k];
-  for (const [k, v] of Object.entries(args)) {
-    if (!Array.isArray(v) || !v.every((x) => x && typeof x === "object")) continue;
-    const mapped = v.map((x) => fixPair(x) || x);
-    if (mapped.some((x, i) => x !== v[i])) out[k] = mapped;
-  }
-  return out;
-}
-
 function checkPaths(name, args, policy, input, home) {
   const own = ownDirs(input, home);
   const overwrite = {};
-  const windows = policy.platform === "win32" && isWindowsPath(policy.root);
   const fix = (raw) => {
-    if (!raw) return raw;
-    if (windows && isWindowsPath(raw)) return windowsToMount(raw, policy);
-    // A relative Windows path (src\app.js): agy would take the backslashes as part of a file name.
-    if (windows && policy.mount && !raw.startsWith("/") && !raw.startsWith("~") && raw.includes("\\")) return path.join(policy.mount, ...raw.split("\\"));
-    if (!(raw.startsWith("/") || raw.startsWith("~"))) return raw;
+    if (!raw || !(raw.startsWith("/") || raw.startsWith("~"))) return raw;
     const p = path.resolve(expand(raw, home));
     if (policy.mount && within(p, policy.mount)) return p === raw ? raw : p;
     if (own.some((d) => within(p, d))) return raw;
@@ -151,17 +92,9 @@ function checkPaths(name, args, policy, input, home) {
     const fixed = values.map(fix);
     const bad = values.find((_, i) => fixed[i] === null);
     if (bad !== undefined) {
-      if (windows && isWindowsPath(bad)) {
-        return { decision: "deny", reason: `${bad} is outside the user's workspace ${policy.root}; ${name} can only use paths inside it. ` +
-          "run_command reaches the rest of the user's computer." };
-      }
       return { decision: "deny", reason: `${bad} is on the service host, outside the user's workspace at ${policy.mount}; ${name} can only use paths inside it.` };
     }
     if (fixed.some((f, i) => f !== values[i])) overwrite[k] = Array.isArray(v) ? fixed : fixed[0];
-  }
-  if (policy.files) {
-    const file = pathArgs({ ...args, ...overwrite }).map(([, v]) => v).find((v) => typeof v === "string" && v.startsWith("/"));
-    Object.assign(overwrite, lineEndingFixes(name, args, file));
   }
   return Object.keys(overwrite).length ? { decision: "allow", overwrite } : null;
 }

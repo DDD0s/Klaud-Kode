@@ -50,7 +50,6 @@ export function createBackends(env, { workspaceRoot, instanceId, claudeCwd, mcpC
         remoteTools: (env.KOMPUTER_AGY_REMOTE_TOOLS || "auto").toLowerCase(),
         remoteShell: env.KOMPUTER_AGY_REMOTE_SHELL || "",
         remoteMount: path.resolve(env.KOMPUTER_AGY_REMOTE_MOUNT || path.join(cwd, "remote")),
-        posixFallback: (env.KOMPUTER_AGY_POSIX_FALLBACK || "auto").toLowerCase(),
         python: env.KOMPUTER_AGY_PYTHON || "python3",
         extraArgs: splitArgs(env.KOMPUTER_AGY_EXTRA_ARGS),
         log: (m) => log(`antigravity: ${m}`),
@@ -85,12 +84,6 @@ export function createBackends(env, { workspaceRoot, instanceId, claudeCwd, mcpC
   }
   if (byName.has("antigravity") && !["auto", "all", "commands", "off"].includes((env.KOMPUTER_AGY_REMOTE_TOOLS || "auto").toLowerCase())) {
     throw new Error("KOMPUTER_AGY_REMOTE_TOOLS must be auto, all, commands or off");
-  }
-  if (byName.has("antigravity") && !["auto", "bash", "translate", "off"].includes((env.KOMPUTER_AGY_POSIX_FALLBACK || "auto").toLowerCase())) {
-    throw new Error("KOMPUTER_AGY_POSIX_FALLBACK must be auto, bash, translate or off");
-  }
-  if (byName.has("antigravity") && env.KOMPUTER_AGY_REMOTE_SHELL && !["default", "cmd", "powershell", "pwsh", "bash", "sh", "wsl"].includes(env.KOMPUTER_AGY_REMOTE_SHELL)) {
-    throw new Error("KOMPUTER_AGY_REMOTE_SHELL must be one of default, cmd, powershell, pwsh, bash, sh, wsl");
   }
   const ids = new Set();
   for (const b of backends) {

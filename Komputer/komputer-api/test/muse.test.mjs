@@ -35,7 +35,7 @@ test("muse: exec argv, prompt file, MCP via env-interpolated -c, session create 
   assert.match(sid, /^[0-9a-f-]{36}$/);
   assert.deepEqual(c.args, ["exec", "--json", "--prompt-file", argAfter(c.args, "--prompt-file"), "--workspace", workspace,
     "--model", "muse-spark", "--reasoning-effort", "high", "--session-id", sid, ...ISLAND, "-c", BODY_OVERRIDE]);
-  assert.equal(c.promptMode, 0o600);
+  if (process.platform !== "win32") assert.equal(c.promptMode, 0o600);
   assert.equal(fs.existsSync(argAfter(c.args, "--prompt-file")), false, "prompt file is removed after the run");
   assert.match(c.prompt, /^<system_instructions>\nYou work on[\s\S]*RULE\n<\/system_instructions>\n\nhello$/);
   assert.deepEqual(c.mcp.komputer_use.url, BODY_MCP.mcpServers.komputer_use.url);

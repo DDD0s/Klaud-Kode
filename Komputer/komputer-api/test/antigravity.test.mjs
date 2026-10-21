@@ -86,7 +86,7 @@ test("agy: routed by model id, session created then resumed with --conversation"
   assert.equal(c.pathHead, path.join(f.dir, "agy-ws", "shim"), "the bash shim comes first on agy's PATH");
   assert.ok(f.body.seen.every((s) => s.auth === "Bearer body-secret"));
   assert.equal(f.body.seen.at(-1).session, "body-session-1", "the bridge keeps the MCP session id");
-  assert.equal(c.bridgeFileMode, 0o600);
+  if (process.platform !== "win32") assert.equal(c.bridgeFileMode, 0o600);
   assert.equal(path.dirname(c.bridgeFile), path.join(f.dir, "agy-ws", "mcp"));
   assert.equal(fs.existsSync(c.bridgeFile), false, "the per-turn target file is removed after the turn");
   assert.ok(!c.envKeys.some((k) => /^(KOMPUTER_(?!AGY_MCP_FILE$)|CLAUDE_BIN|AGY_BIN|FAKE_CLAUDE_STATE|ANTHROPIC_)/.test(k)), c.envKeys.join(","));
@@ -206,12 +206,12 @@ test("agy: client tools reach agy through the bridge, pointed at the run's own M
   assert.equal(call.function.name, "lookup");
   assert.deepEqual(JSON.parse(call.function.arguments), { query: "from agy" });
   const c = f.agyCalls().at(-1);
-  assert.match(c.cwd, /komputer-tools-[^/]+\/agy$/);
+  assert.match(c.cwd.split(path.sep).join("/"), /komputer-tools-[^/]+\/agy$/);
   assert.deepEqual(Object.keys(c.mcpTools), ["komputer_use"]);
   assert.equal(c.mcpTools.komputer_use.length, 1, "only the client tool, not the body's");
   assert.notEqual(c.mcpTools.komputer_use[0], "system_info");
-  assert.match(c.bridgeFile, /komputer-tools-[^/]+\/agy-mcp-[0-9a-f-]+\.json$/);
-  assert.equal(c.bridgeFileMode, 0o600);
+  assert.match(c.bridgeFile.split(path.sep).join("/"), /komputer-tools-[^/]+\/agy-mcp-[0-9a-f-]+\.json$/);
+  if (process.platform !== "win32") assert.equal(c.bridgeFileMode, 0o600);
   assert.ok(!f.body.seen.length, "a harness turn never touches the body MCP");
   assert.ok(c.noProxy.split(",").includes("127.0.0.1"));
   assert.deepEqual(c.args, BASE, "harness runs are stateless and island-only");
@@ -295,7 +295,7 @@ test("agy: island turns never run agy's own tools: the hook denies them first, t
   });
   const hooks = JSON.parse(fs.readFileSync(path.join(f.dir, "home", ".gemini", "config", "hooks.json"), "utf8"));
   assert.deepEqual(hooks.mine, own, "the operator's own hooks are kept");
-  assert.deepEqual(hooks.komputer.PreToolUse[0].hooks[0].command, `'${process.execPath}' '${HOOK}'`);
+  assert.deepEqual(hooks.komputer.PreToolUse[0].hooks[0].command, process.platform === "win32" ? `"${process.execPath}" "${HOOK}"` : `'${process.execPath}' '${HOOK}'`);
   assert.match(f.logs(), /registered the "komputer" PreToolUse hook/);
   const r = await chat(f, { model: "komputer-agy", messages: [user("BUILTIN list files")] });
   assert.equal(r.status, 200, r.text);
@@ -343,7 +343,7 @@ test("agy: by default Body turns work like Claude's (agy's own tools off, the co
   assert.match(win.logs(), /remote tools \(commands\) are POSIX-only; the Windows computer is used through komputer_use with agy's own tools off/);
 });
 
-test("agy: in Body turns run_command runs on the user's computer through the bash shim, file tools are kept off this host", { skip: !haveBody && "kloud-kode-body dependencies are not installed" }, async (t) => {
+test("agy: in Body turns run_command runs on the user's computer through the bash shim, file tools are kept off this host", { skip: !haveBody ? "kloud-kode-body dependencies are not installed" : process.platform === "win32" ? "the real Body here is a Windows computer and the redirect is POSIX-only" : false }, async (t) => {
   const body = await realBody(t);
   const f = await agyFixture(t, { KOMPUTER_AGY_PERMISSIONS: "skip" }, { prepare: (dir) => fs.writeFileSync(path.join(dir, ".mcp.json"), body.mcpJson) });
   const ws = fs.realpathSync(path.join(f.dir, "agy-ws", "body"));

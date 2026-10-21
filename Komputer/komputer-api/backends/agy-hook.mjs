@@ -12,6 +12,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 /** Tools that act inside agy itself, on MCP servers, or on nothing at all. */
 export const AGY_HOST_FREE = new Set(["call_mcp_tool", "ask_question", "ask_permission", "ask_custom_permission", "list_permissions",
@@ -39,12 +40,23 @@ function pathArgs(args) {
   return out;
 }
 
-const within = (p, dir) => p === dir || p.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep);
-const expand = (p, home) => (p === "~" ? home : p.startsWith("~/") ? path.join(home, p.slice(2)) : p);
+// Paths arrive in the style of the machine they name (the mount and home from
+// this host, the root from the user's computer), which is not necessarily
+// this process's path style. Pick the path module by the style of each path
+// so the checks give the same answer on every host.
+const styleOf = (p) => (/^[A-Za-z]:[\\/]/.test(String(p)) || String(p).startsWith("\\\\") ? path.win32 : path.posix);
+const isAbsLike = (p) => typeof p === "string" && (p.startsWith("~") || styleOf(p).isAbsolute(p));
+const within = (p, dir) => {
+  const m = styleOf(dir);
+  const pp = m.resolve(p);
+  const dd = m.resolve(dir);
+  return pp === dd || pp.startsWith(dd.endsWith(m.sep) ? dd : dd + m.sep);
+};
+const expand = (p, home) => (p === "~" ? home : p.startsWith("~/") || (p.startsWith("~") && p[1] === path.win32.sep) ? styleOf(home).join(home, p.slice(2)) : p);
 
 const ownDirs = (input, home) =>
-  [input?.artifactDirectoryPath, input?.conversationId && path.join(home, ".gemini", "antigravity-cli", "brain", input.conversationId)]
-    .filter(Boolean).map((d) => path.resolve(d));
+  [input?.artifactDirectoryPath, input?.conversationId && styleOf(home).join(home, ".gemini", "antigravity-cli", "brain", input.conversationId)]
+    .filter(Boolean).map((d) => styleOf(d).resolve(d));
 
 /** Read-only file tools; agy lists lazy MCP tools by name only and the model reads their schemas with these. */
 export const AGY_READ_TOOLS = new Set(["view_file", "read_file", "list_dir", "grep_search", "find_by_name"]);
@@ -59,9 +71,9 @@ const realish = (p) => {
 /** Every path argument names agy's MCP schema dir (~/.gemini/antigravity-cli/mcp/<server>/<tool>.json), which agy writes itself. */
 function readsMcpSchemas(name, args, home) {
   if (!AGY_READ_TOOLS.has(name)) return false;
-  const dir = realish(path.join(home, ".gemini", "antigravity-cli", "mcp"));
+  const dir = realish(styleOf(home).join(home, ".gemini", "antigravity-cli", "mcp"));
   const values = pathArgs(args).flatMap(([, v]) => [].concat(v));
-  return values.length > 0 && values.every((v) => (v.startsWith("/") || v.startsWith("~")) && within(realish(path.resolve(expand(v, home))), dir));
+  return values.length > 0 && values.every((v) => isAbsLike(v) && within(realish(styleOf(dir).resolve(expand(v, home))), dir));
 }
 
 /**
@@ -85,7 +97,7 @@ export function decide(input, policy, { home = os.homedir() } = {}) {
     // agy's own artifacts (plans, task lists) stay on the service host, where agy reads them back.
     const own = ownDirs(input, home);
     const values = pathArgs(args).flatMap(([, v]) => [].concat(v));
-    if (values.length && values.every((v) => (v.startsWith("/") || v.startsWith("~")) && own.some((d) => within(path.resolve(expand(v, home)), d)))) return null;
+    if (values.length && values.every((v) => isAbsLike(v) && own.some((d) => within(expand(v, home), d)))) return null;
     return deny(`The user's files are on their computer, which ${name} cannot reach here. Use run_command (it runs on the user's computer), ` +
       "for example cat, ls, sed or a here-document, or the komputer_use tools.");
   }
@@ -97,12 +109,18 @@ function checkPaths(name, args, policy, input, home) {
   const own = ownDirs(input, home);
   const overwrite = {};
   const fix = (raw) => {
-    if (!raw || !(raw.startsWith("/") || raw.startsWith("~"))) return raw;
-    const p = path.resolve(expand(raw, home));
+    if (!raw || !isAbsLike(raw)) return raw;
+    const expanded = expand(raw, home);
+    const m = styleOf(policy.mount || expanded);
+    const p = m.resolve(expanded);
     if (policy.mount && within(p, policy.mount)) return p === raw ? raw : p;
     if (own.some((d) => within(p, d))) return raw;
     // A path the model saw in command output: the same file under the mount.
-    if (policy.mount && policy.root?.startsWith("/") && within(p, policy.root)) return path.join(policy.mount, path.relative(policy.root, p));
+    if (policy.mount && policy.root && styleOf(policy.root).isAbsolute(policy.root) && within(p, policy.root)) {
+      const rm = styleOf(policy.root);
+      const rel = rm.relative(rm.resolve(policy.root), rm.resolve(expanded));
+      return m.join(policy.mount, ...rel.split(/[\\/]/).filter(Boolean));
+    }
     return null;
   };
   for (const [k, v] of pathArgs(args)) {
@@ -127,7 +145,7 @@ function loadPolicy() {
   }
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname);
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   let raw = "";
   process.stdin.setEncoding("utf8");

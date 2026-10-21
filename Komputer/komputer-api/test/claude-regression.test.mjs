@@ -47,6 +47,18 @@ function expectedEnvKeys(source, { privateMcp = false } = {}) {
   if (privateMcp || source.NO_PROXY !== undefined || source.no_proxy !== undefined || all) { keys.add("NO_PROXY"); keys.add("no_proxy"); }
   return [...keys].sort();
 }
+// Windows always materialises these variables in a child process, whatever
+// env spawn was given, and merges case variants (HTTP_PROXY vs http_proxy)
+// into one entry. Compare names case-insensitively there, expecting those
+// extras next to the names the allowlist itself passes.
+const WINDOWS_CHILD_ENV = ["HOMEDRIVE", "HOMEPATH", "LOGONSERVER", "SYSTEMDRIVE", "SYSTEMROOT", "TEMP", "USERDOMAIN", "USERNAME", "USERPROFILE", "WINDIR"];
+function assertEnvKeys(actual, source, options) {
+  const expected = expectedEnvKeys(source, options);
+  if (process.platform !== "win32") return assert.deepEqual(actual, expected);
+  const inSource = new Set(Object.keys(source).map((k) => k.toUpperCase()));
+  const want = [...new Set([...expected, ...WINDOWS_CHILD_ENV.filter((k) => inSource.has(k))].map((k) => k.toUpperCase()))].sort();
+  assert.deepEqual([...new Set(actual.map((k) => k.toUpperCase()))].sort(), want);
+}
 const serverSource = (f) => {
   const env = { ...process.env };
   for (const k of Object.keys(env)) if (/^KOMPUTER_/i.test(k)) delete env[k];
@@ -71,7 +83,7 @@ test("Claude Code argv, stdin and environment are unchanged for every invocation
   assert.deepEqual(normalize(f, c.args), [...COMMON, "--mcp-config", "<BODY_MCP>", ...STREAM, "--tools", "", "--model", "opus", "--effort", "high", "--session-id", "<UUID>"]);
   assert.equal(c.stdin, "first");
   assert.equal(c.system, `${NOTE}\n\nCLIENT RULE`);
-  assert.deepEqual(c.envKeys, expectedEnvKeys(serverSource(f)));
+  assertEnvKeys(c.envKeys, serverSource(f));
   const sid = c.args[c.args.indexOf("--session-id") + 1];
 
   // Session resume sends only the newest user message.
@@ -116,7 +128,7 @@ test("Claude Code argv, stdin and environment are unchanged for every invocation
   c = last();
   assert.deepEqual(normalize(f, c.args), [...COMMON, "--mcp-config", "<HARNESS_MCP>", ...STREAM, "--tools", "", "--model", "sonnet", "--no-session-persistence"]);
   assert.equal(c.stdin, "user: CLIENT_TOOL");
-  assert.deepEqual(c.envKeys, expectedEnvKeys(serverSource(f), { privateMcp: true }));
+  assertEnvKeys(c.envKeys, serverSource(f), { privateMcp: true });
   const call = r.json().choices[0].message.tool_calls[0];
   const done = await chat({ model: "komputer-sonnet", tools, messages: [{ role: "tool", tool_call_id: call.id, content: "ok" }] });
   assert.equal(done.status, 200, done.text);

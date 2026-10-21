@@ -9,7 +9,7 @@ import path from "node:path";
 import { cmdArgs, decodeOutput, detectShells, powershellArgs, powershellScript, runCommand, Processes } from "../server.mjs";
 
 if (process.env.KLOUD_KODE_TEST_PWSH) process.env.PATH = `${process.env.KLOUD_KODE_TEST_PWSH}${path.delimiter}${process.env.PATH}`;
-const pwsh = String(process.env.PATH).split(path.delimiter).some((d) => d && fs.existsSync(path.join(d, "pwsh")));
+const pwsh = String(process.env.PATH || process.env.Path || "").split(path.delimiter).some((d) => d && (fs.existsSync(path.join(d, "pwsh")) || fs.existsSync(path.join(d, "pwsh.exe"))));
 
 test("Windows shells: Git Bash is bash, WSL's System32 bash.exe is not, pwsh is found on PATH", () => {
   const files = new Set([
@@ -73,7 +73,7 @@ test("cmd: the command reaches a second cmd started after chcp 65001, through on
   assert.deepEqual(cmdArgs("dir", { utf8: false }), { args: ["/d", "/s", "/c", `"dir"`], env: {} });
 });
 
-test("PowerShell (real pwsh): exit codes follow bash, output is UTF-8, errors are text, long scripts run", { skip: !pwsh && "pwsh is not installed" }, async () => {
+test("PowerShell (real pwsh): exit codes follow bash, output is UTF-8, errors are text, long scripts run", { skip: process.platform === "win32" ? "the native-command cases call sh; Windows shells are covered in windows-host.test.mjs" : !pwsh && "pwsh is not installed" }, async () => {
   const run = (command) => runCommand({ command, shell: "pwsh", cwd: process.cwd(), timeoutMs: 30_000, maxOutputBytes: 1 << 20 });
   const cases = [
     ["sh -c 'exit 3'", 3],
@@ -114,14 +114,15 @@ test("output that is not UTF-8 is decoded with the console code page, e.g. GBK",
 
 test("a started process with idleTimeoutMs is stopped once nobody reads it", async () => {
   const p = new Processes(1 << 16);
-  const { processId } = p.start("sleep 30", process.cwd(), "default", { idleTimeoutMs: 1_000 });
+  const SLEEP = process.platform === "win32" ? "ping -n 31 127.0.0.1 >nul" : "sleep 30";
+  const { processId } = p.start(SLEEP, process.cwd(), "default", { idleTimeoutMs: 1_000 });
   await new Promise((r) => setTimeout(r, 600));
   assert.equal(p.read(processId).running, true, "a read renews the lease");
   await new Promise((r) => setTimeout(r, 2_600));
   const r = p.read(processId);
   assert.equal(r.running, false);
   assert.equal(r.idleStopped, true);
-  const kept = p.start("sleep 30", process.cwd());
+  const kept = p.start(SLEEP, process.cwd());
   await new Promise((r) => setTimeout(r, 1_200));
   assert.equal(p.read(kept.processId).running, true, "without a lease the process keeps running");
   p.killAll();

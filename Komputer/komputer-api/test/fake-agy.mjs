@@ -22,6 +22,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
 const stateDir = process.env.FAKE_AGY_STATE;
@@ -32,7 +33,7 @@ const argVal = (flag) => {
 const out = (o) => process.stdout.write(JSON.stringify(o) + "\n");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const usage = { input_tokens: 20, output_tokens: 9, thinking_tokens: 4, cache_read_tokens: 5, total_tokens: 29 };
-const trace = path.join(path.dirname(new URL(import.meta.url).pathname), "fixtures", "agy-1.4.3-signed-in-run-command.jsonl");
+const trace = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "agy-1.4.3-signed-in-run-command.jsonl");
 const BUILTIN_TOOLS = JSON.parse(fs.readFileSync(trace, "utf8").split("\n")[0]).init.tools;
 const configFile = path.join(os.homedir(), ".gemini", "config", "mcp_config.json");
 const readConfig = () => (fs.existsSync(configFile) ? JSON.parse(fs.readFileSync(configFile, "utf8")) : { mcpServers: {} });
@@ -258,7 +259,7 @@ async function turn(prompt, mcp) {
         return "";
       }
       fs.appendFileSync(path.join(stateDir, "agy-host-commands.jsonl"), JSON.stringify({ command: CommandLine, cwd: process.cwd() }) + "\n");
-      const r = spawnSync("bash", ["-c", CommandLine], { cwd: process.cwd(), env: process.env, encoding: "utf8" });
+      const r = spawnSync(bashExe(), ["-c", CommandLine], { cwd: process.cwd(), env: process.env, encoding: "utf8" });
       return `Command exited with code ${r.status ?? 1}.\n\nCommand output:\n${(r.stdout || "") + (r.stderr || "")}`.replace(/\r?\n/g, "\r\n");
     });
   }
@@ -295,6 +296,20 @@ function allowRules() {
   }
 }
 
+/** A real bash for built-in run_command: PATH first (the service's shim lives there), Git for Windows next. */
+let cachedBash;
+function bashExe() {
+  if (cachedBash !== undefined) return cachedBash;
+  const candidates = ["bash"];
+  if (process.platform === "win32") {
+    for (const root of [process.env.ProgramFiles, process.env["ProgramFiles(x86)"], `C:${path.sep}Program Files`]) {
+      if (root) candidates.push(path.join(root, "Git", "bin", "bash.exe"));
+    }
+  }
+  cachedBash = candidates.find((c) => !spawnSync(c, ["--version"], { stdio: "ignore" }).error) || "bash";
+  return cachedBash;
+}
+
 /**
  * ~/.gemini/config/hooks.json PreToolUse hooks, as agy 1.4.3 runs them: `sh -c` in the config
  * directory, the call on stdin; empty output is no opinion, a decision of "deny" (or none at all)
@@ -315,7 +330,9 @@ function preToolHooks(name, args, conversationId, stepIdx) {
       for (const hook of rule.hooks || []) {
         const input = JSON.stringify({ toolCall: { name, args: current }, stepIdx, conversationId, workspacePaths: [process.cwd()],
           artifactDirectoryPath: path.join(os.homedir(), ".gemini", "antigravity-cli", "brain", conversationId) });
-        const r = spawnSync("sh", ["-c", hook.command], { cwd: dir, input, encoding: "utf8", env: process.env, timeout: (hook.timeout || 10) * 1000 });
+        const r = process.platform === "win32"
+          ? spawnSync(hook.command, { cwd: dir, input, encoding: "utf8", env: process.env, timeout: (hook.timeout || 10) * 1000, shell: true })
+          : spawnSync("sh", ["-c", hook.command], { cwd: dir, input, encoding: "utf8", env: process.env, timeout: (hook.timeout || 10) * 1000 });
         const text = (r.stdout || "").trim();
         if (!text) continue;
         const v = JSON.parse(text);

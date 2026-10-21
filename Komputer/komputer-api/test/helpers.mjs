@@ -16,9 +16,14 @@ export async function apiFixture(t, { env: extra = {}, prepare = () => {} } = {}
   await prepare(dir);
   const env = { ...process.env };
   for (const key of Object.keys(env)) if (/^KOMPUTER_/i.test(key)) delete env[key];
+  const homeDir = path.join(dir, "home");
+  // A private home keeps CLI config writes (agy mcp add) out of the developer's own.
+  // os.homedir() reads HOME on POSIX but USERPROFILE on Windows, so set both.
+  const homeEnv = process.platform === "win32"
+    ? { HOME: homeDir, USERPROFILE: homeDir, HOMEDRIVE: path.parse(homeDir).root.slice(0, 2), HOMEPATH: homeDir.slice(2) }
+    : { HOME: homeDir };
   const child = spawn(process.execPath, [path.join(here, "..", "server.mjs")], {
-    // A private HOME keeps CLI config writes (agy mcp add) out of the developer's own.
-    env: { ...env, HOME: path.join(dir, "home"), KOMPUTER_API_HOST: "127.0.0.1", KOMPUTER_API_PORT: "0",
+    env: { ...env, ...homeEnv, KOMPUTER_API_HOST: "127.0.0.1", KOMPUTER_API_PORT: "0",
       KOMPUTER_KEYS_FILE: path.join(dir, "KEYS.txt"), KOMPUTER_SESSIONS_FILE: path.join(dir, "sessions.json"),
       KOMPUTER_SESSION_DIR: dir, KOMPUTER_CLAUDE_CWD: dir, KOMPUTER_AUTH_FAIL_DELAY_MS: "1",
       KOMPUTER_HEALTH_URL: "http://127.0.0.1:9/healthz", KOMPUTER_TUNNEL_UP: path.join(dir, "disabled.sh"),

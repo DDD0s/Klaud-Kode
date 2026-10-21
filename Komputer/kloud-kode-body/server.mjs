@@ -231,8 +231,9 @@ function onPath(names, env, exists, { skip = () => false, paths = path } = {}) {
  */
 function detectShells({ platform = process.platform, env = process.env, exists = existsSync } = {}) {
   if (platform !== "win32") {
-    const sh = onPath(["sh"], env, exists) || (exists("/bin/sh") ? "/bin/sh" : null);
-    return { default: sh, sh, bash: onPath(["bash"], env, exists), pwsh: onPath(["pwsh"], env, exists), powershell: null, cmd: null, wsl: null };
+    const posix = (names) => onPath(names, env, exists, { paths: path.posix });
+    const sh = posix(["sh"]) || (exists("/bin/sh") ? "/bin/sh" : null);
+    return { default: sh, sh, bash: posix(["bash"]), pwsh: posix(["pwsh"]), powershell: null, cmd: null, wsl: null };
   }
   const p = path.win32;
   const sys = env.SystemRoot || env.SYSTEMROOT || "C:\\Windows";

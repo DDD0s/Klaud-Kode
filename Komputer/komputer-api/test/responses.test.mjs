@@ -50,7 +50,7 @@ test("responses: non-streaming text, instructions, effort, usage and retrieval",
   assert.ok(c.system.endsWith("\n\nBE BRIEF"));
   assert.equal((await f.request(`/v1/responses/${body.id}`)).json().id, body.id);
   const stored = fs.statSync(path.join(f.dir, "responses.json"));
-  assert.equal(stored.mode & 0o777, 0o600);
+  if (process.platform !== "win32") assert.equal(stored.mode & 0o777, 0o600);
 });
 
 test("responses: previous_response_id continues on one CLI session; forks reseed", async (t) => {

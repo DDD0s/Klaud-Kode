@@ -38,9 +38,14 @@ const agySettingsFile = (home) => path.join(home, ".gemini", "antigravity-cli", 
 
 const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
+// Hook commands run through the platform shell: POSIX sh takes single
+// quotes, Windows shells take double quotes (a Windows path cannot
+// contain one, so nothing inside them needs escaping there).
+const hookCommand = (node) => (process.platform === "win32" ? `"${node}" "${AGY_HOOK}"` : `${shq(node)} ${shq(AGY_HOOK)}`);
+
 /** The "komputer" entry of ~/.gemini/config/hooks.json: agy-hook.mjs before every tool call. */
 export const hookEntry = (node = process.execPath) => ({
-  PreToolUse: [{ matcher: ".*", hooks: [{ type: "command", command: `${shq(node)} ${shq(AGY_HOOK)}`, timeout: 10 }] }],
+  PreToolUse: [{ matcher: ".*", hooks: [{ type: "command", command: hookCommand(node), timeout: 10 }] }],
 });
 const isHook = (entry) => JSON.stringify(entry) === JSON.stringify(hookEntry());
 

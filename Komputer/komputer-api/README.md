@@ -185,8 +185,9 @@ Claude Code 自身的提示、用户配置、memory 或 skills 仍可能带入�
 | `KOMPUTER_AGY_PERMISSIONS` | `settings` | `settings` 使用 agy 自己的权限设置；`skip` 传 `--dangerously-skip-permissions` |
 | `KOMPUTER_AGY_MCP_SETUP` | `auto` | `auto` 启动时用 `agy mcp add` 在 agy 全局配置中注册 MCP 转接器；`off` 只检查并提示 |
 | `KOMPUTER_AGY_REMOTE_TOOLS` | `auto` | Body 回合里 agy 自己的工具在哪里执行：`auto` 命令在用户电脑上，能用 FUSE 时文件工具也经挂载在用户电脑上；`all` 要求挂载；`commands` 只转发命令、拒绝文件工具；`off` 全部拒绝。见 [CLI 后端](../docs/backends.md#agy-的内置工具在用户电脑上执行) |
-| `KOMPUTER_AGY_REMOTE_SHELL` | 空 | 远端执行命令的 shell，默认 `bash`（Windows Body 为 `default`） |
-| `KOMPUTER_AGY_REMOTE_MOUNT` / `KOMPUTER_AGY_PYTHON` | `<agy 工作目录>/remote` / `python3` | Body 根目录的 FUSE 挂载点，以及运行 `komputer-fs.py`（需要 fusepy）的解释器 |
+| `KOMPUTER_AGY_REMOTE_SHELL` | 空 | 远端执行命令的 shell：`default`、`cmd`、`powershell`、`pwsh`、`bash`、`sh`、`wsl`。空时 POSIX Body 用 `bash`，Windows Body 有 PowerShell 7 时用 `pwsh`，否则 `powershell` |
+| `KOMPUTER_AGY_POSIX_FALLBACK` | `auto` | Windows Body 上模型仍写出 bash 命令时：`auto` 有 Git Bash 就在 Git Bash 里运行，否则把简单命令翻译成 PowerShell；`bash` 只用 Git Bash；`translate` 只翻译；`off` 原样交给 PowerShell |
+| `KOMPUTER_AGY_REMOTE_MOUNT` / `KOMPUTER_AGY_PYTHON` | `<agy 工作目录>/remote` / `python3` | Body 根目录的 FUSE 挂载点，以及运行 `komputer-fs.py`（需要 fusepy）的解释器。Windows 根目录挂在其下的盘符路径，如 `C:\Users\me\proj` 挂在 `<挂载点>/c/Users/me/proj`；挂载点设为 `/mnt` 时与 WSL 的 `/mnt/c` 写法一致 |
 | `KOMPUTER_AGY_BUILTIN_GUARD` | `warn` | agy 的工具步骤在执行后仍被策略判为“在服务主机上”时：`warn` 记日志，`stop` 结束回合并返回 502，`off` 不检查 |
 | `KOMPUTER_AGY_CWD` / `KOMPUTER_MUSE_CWD` | `~/.komputer/workspaces/<实例摘要>-agy` / `-muse` | agy、muse 的工作目录 |
 | `KOMPUTER_MUSE_MODEL_ID` / `KOMPUTER_MUSE_MODELS` | `komputer-muse` / 空 | Muse 的模型名 |

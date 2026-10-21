@@ -142,7 +142,7 @@ MCP 起不来时回合失败，不会在没有工具的情况下继续。URL 和
   其余调用交给真实 bash。命令通过 Body 的 `start_process` 启动，`read_process` 流式取回输出，stdin 经 `write_process` 转发，
   agy 终止命令时调用 `stop_process`，退出码原样返回；没有 `start_process` 的 Body 退回 `run_command`。
   工作目录按相对工作区的位置换到 Body 上；命令里的工作区路径换成 Body 路径，输出里的 Body 路径换回工作区路径（仅 POSIX 根目录），
-  所以模型看到的始终是同一个工作区。远端 shell 默认 `bash`（Windows Body 为 `default`），可用 `KOMPUTER_AGY_REMOTE_SHELL` 指定。
+  所以模型看到的始终是同一个工作区。远端 shell 默认 `bash`，Windows Body 见 [下文](#用户电脑是-windows)；可用 `KOMPUTER_AGY_REMOTE_SHELL` 指定。
 - **文件。** [komputer-fs.py](../komputer-api/backends/komputer-fs.py)（fusepy）把 Body 根目录挂载到
   `<agy 工作目录>/remote`（`KOMPUTER_AGY_REMOTE_MOUNT`），它就是 Body 回合里 agy 的工作区。每个文件操作变成 Body MCP 调用
   （`stat_path`、`list_directory`、`read_file` / `write_file` 的 base64 模式、`create_directory`、`delete_path`、`move_path`）。
@@ -187,8 +187,87 @@ MCP 起不来时回合失败，不会在没有工具的情况下继续。URL 和
 - 属性缓存 2 秒；用户同时在电脑上改同一个文件时，后写的覆盖先写的。
 - 长时间运行的命令：shim 一直等到远端进程结束，agy 照常把超过 `WaitMsBeforeAsync` 的命令当作后台命令；
   `command_status`、`send_command_input` 没有逐项验证。
-- Windows Body：远端 shell 不是 bash，路径不做映射；agy 的系统提示里的操作系统仍是服务主机的 linux。
 - agy 自己如果在 Body 回合里另外调用 `bash -c`，也会被转发到 Body；目前没有观察到这种调用。
+
+### 用户电脑是 Windows
+
+agy 在 Linux 服务主机上运行，用户电脑可以是 Windows。Body 1.3 的 `system_info` 报告 `platform: "win32"`、
+Windows 版本、根目录（如 `C:\Users\me\proj`）和 `availableShells`；更早的 Windows Body 按只有 cmd 和 Windows PowerShell 处理。
+服务据此在四个地方调整，实现在 [windows.mjs](../komputer-api/backends/windows.mjs)、shim 和 hook 里。
+
+**1. 让模型知道这是 Windows。** 真实 agy 1.4.3 发给模型的系统提示里，`<user_information>` 写着
+“The USER's OS version is linux.”，工作区和 “Command Working Directory” 是服务主机上的路径，
+`run_command` 的说明是 “Operating System: linux. Shell: bash.”。这个系统名是编译进程序的，没有环境变量能改。比较过的办法：
+
+| 办法 | 结论 |
+| --- | --- |
+| 每回合在用户消息开头加 `<user_computer>` 说明 | **采用**。真实 agy 原样把它放进用户回合。说明指出 agy 自己写的 linux 和工作区路径描述的是服务主机，并写明 Windows 版本、Windows 形式的工作区、`run_command` 用哪个 PowerShell（5.1 没有 `&&`）、文件工具能到哪里、UTF-8 和换行。每回合重新生成，所以换 Body、续接旧会话时也是最新的。macOS Body 只加一句系统说明，Linux Body 不加 |
+| 规则文件：`~/.gemini/GEMINI.md`、`~/.gemini/AGENTS.md`、`~/.gemini/config/GEMINI.md`，工作区的 `AGENTS.md` / `GEMINI.md` | 真实 agy 会读，放在 `<user_rules>`，排在 `<user_information>` 前面，并声明优先于后面的说明。没有采用：全局文件对这个账号下的所有 agy 会话生效，包括手动运行；工作区文件在挂载上，就会写进用户的项目。需要更强的提示时可以手动加一份 |
+| `.agents/rules/*.md` | 没有 frontmatter 时不读；带 frontmatter 的写法没有验证 |
+| `--agent` 自定义代理（自带系统提示） | 程序里有，没有验证 |
+| 改写请求：`GOOGLE_GEMINI_BASE_URL` 指向代理，替换系统提示里的 linux | 只适用于 API key 路径；已登录时请求发往 Google 的服务。没有采用 |
+| 改 agy 报告的系统名 | 不可行 |
+
+**2. 命令。** shim 把 `run_command` 交给 Body 的 PowerShell：有 PowerShell 7 用 `pwsh`，否则用 Windows PowerShell 5.1（`powershell`）。
+`KOMPUTER_AGY_REMOTE_SHELL` 可以改成 `cmd` 等。
+
+- 路径：命令里 agy 工作区的路径换成 Windows 路径（`<挂载>/sub/a.txt` → `C:\Users\me\proj\sub\a.txt`），工作目录同样换算；
+  输出里的 Windows 路径不换回去，说明里已让模型直接写 Windows 路径。
+- Body 的包装（[server.mjs](../kloud-kode-body/server.mjs) `powershellScript`）：不用再套引号。pwsh 的命令经 `-EncodedCommand` 传入，
+  `-OutputFormat Text` 让错误是纯文本。Windows PowerShell 5.1 在 `-EncodedCommand` 下不理会这个参数，错误仍是 CLIXML
+  （CI 的 Windows 主机上看到的），所以 5.1 的命令总是写成带 BOM 的临时 `.ps1`，用 `-File` 运行。
+  不显示进度条，`[Console]::OutputEncoding` 设为 UTF-8。
+  命令放在 `. { … } | Out-String -Stream -Width 4096` 里，输出被重定向时 PowerShell 按 80 列排表格、长文件名会折行或截断，
+  这样就不会了。`$COLUMNS`、`$PSDefaultParameterValues` 和改 `RawUI` 都没有用。
+  退出码与 bash 一样取最后一条语句，失败的外部程序带回自己的退出码。
+- 换行和编码：输出的 CRLF 换成 LF，因为 agy 的 PTY 还会再加 `\r`。`send_command_input` 的输入换成 CRLF。
+  Body 先按严格 UTF-8 解码，失败时按系统代码页（如 GBK）解码；`consoleUtf8: false` 时保留系统代码页。
+  cmd 只在启动时读取代码页：同一行里 `chcp 65001 & echo 中文` 仍按旧代码页输出（CI 上是 `??`），
+  所以 Body 先 `chcp 65001`，再启动第二个 cmd 运行命令。命令放在环境变量里，用延迟展开取出，只被解析一次。
+- 超时和后台命令：命令经 `start_process` 启动，`idleTimeoutMs` 为 60 秒。shim 一直在读输出，所以运行多久都可以；
+  agy 照常把超过 `WaitMsBeforeAsync` 的命令转为后台。agy 被结束、shim 不再读取后，60 秒内 Body 用 `taskkill /t` 结束整棵进程树。
+- 交互输入：`send_command_input` 写到 shim 的 stdin，再经 `write_process` 发给 PowerShell。外部程序和 `Read-Host` 都能读到；
+  `Read-Host` 会把已经到达的输入全部读走，同一条命令里随后启动的外部程序读不到。
+
+**3. 文件。** agy 的文件工具在进程内工作，只认 POSIX 路径，`C:\...` 会报 “file does not exist”。
+所以 Windows 根目录挂在 `<KOMPUTER_AGY_REMOTE_MOUNT>/<盘符>/<其余路径>`（`C:\Users\me\proj` → `<挂载点>/c/Users/me/proj`，
+UNC 路径在 `unc/<主机>/...` 下）。挂载点设为 `/mnt` 时与 WSL 的 `/mnt/c` 一样。hook 改写参数：
+
+- `C:\Users\me\proj\x`、`c:/users/me/proj/x`（盘符和根目录不区分大小写）、相对路径 `sub\x` 都换到挂载上；
+  其余部分原样交给 Body，Windows 本身不区分大小写。
+- 根目录外的 Windows 路径（`D:\...`、`C:\Users\me\secret.txt`）被拒绝，提示里写的是 Windows 根目录，并告诉模型用 `run_command`。
+- CRLF：`read_file` 会显示 `\r`；`edit_file` 的 LF 目标在 CRLF 文件里找不到。hook 先读文件，
+  如果文件是 CRLF，就把 `Target` / `Replacement`（以及 `TargetContent`、`ReplacementContent` 和 `ReplacementChunks` 里的同名项）
+  换成 CRLF；覆盖已有的 CRLF 文件时，写入的内容也换成 CRLF。新文件按模型给的内容写。
+- komputer-fs 把 Windows 的错误对应到 errno：文件被占用是 `EBUSY`，非法文件名是 `EINVAL`，路径太长是 `ENAMETOOLONG`；
+  目录总是带执行位。
+
+另考虑过用 sshfs 挂载 Windows 的 OpenSSH 服务。它更快，但用户电脑要另开 SSH 服务，暴露整个磁盘，也不受 Body 的 `roots` 限制，所以没有采用。
+没有 FUSE 时，文件工具被拒绝，说明会让模型用 `Get-Content` / `Set-Content`。
+
+**4. 模型仍然写 bash（`KOMPUTER_AGY_POSIX_FALLBACK`，默认 `auto`）。** shim 用规则判断命令是不是 POSIX 写法：
+带 POSIX 参数的 `ls -la`、`rm -rf`、`grep -rn` 等，`/dev/null`，heredoc，`if [ … ]; then`，`~/`、`$HOME`、`${X}`。
+出现 `Get-ChildItem` 这类 PowerShell 动词-名词或 `$env:` 时不算。判定为 POSIX 时：
+
+- 电脑上有 Git Bash（`availableShells` 含 `bash`）：在 Git Bash 里运行，命令里的路径换成 `C:/Users/...`。
+- 否则把简单命令翻译成 PowerShell：`ls`、`pwd`、`cat`、`head`/`tail`、`mkdir -p`、`rm`、`cp`、`mv`、`touch`、`which`、`uname`、
+  `env`、`grep`、`wc -l`、`export`、`echo`，支持 `&&` 和 `/dev/null` 重定向。带管道、变量、反斜杠的不翻译，原样交给 PowerShell。
+- 这两种情况都会在输出里加一行 `[komputer] …`，提醒模型这台电脑是 Windows。
+
+`bash` 只用 Git Bash，`translate` 只翻译，`off` 原样交给 PowerShell。WSL 不会自动使用：
+它的文件系统和路径与 Windows 不同，也不一定装了发行版。需要时可以设 `KOMPUTER_AGY_REMOTE_SHELL=wsl`，但这时不做路径换算。
+
+| 用真实程序验证 | 只用替身或模拟验证 | 假设 |
+| --- | --- | --- |
+| agy 1.4.3 系统提示里的 linux、bash 和工作区路径；规则文件的位置和优先级；`.agents/rules` 无 frontmatter 不读 | Windows Body 由真实 Body 加一层代理模拟（`test/helpers.mjs` 的 `windowsBody`）：报告 win32 和 `C:\` 根目录，用 pwsh 执行 PowerShell，输出改成 CRLF | Windows PowerShell 5.1、cmd 的 `chcp 65001`、Git Bash 的行为（CI 的 `workstation-windows` 任务在真实 Windows 上跑 `test/windows-host.test.mjs`） |
+| 真实 agy 的 `<user_computer>` 说明到达模型；`run_command` 在（模拟的）Windows 上运行 PowerShell，退出码、工作目录、`ls -la` 的翻译、输出没有 `\r\r\n` | 替身 agy 的完整回合：说明内容、POSIX 回退、Git Bash 分支 | 已登录工具集（`view_file`、`write_to_file`、`replace_file_content` 等）的参数名；hook 按已知参数名和以 path / file / dir 结尾的参数名处理 |
+| 真实 agy 的 `read_file` 经 hook 和挂载读到 `C:\` 下的文件；`edit_file` 用 LF 目标改 CRLF 文件后仍是 CRLF；`D:\` 被拒绝 | GBK 输出的解码（单元测试） | 模型在有说明的情况下会改写 PowerShell；实际效果要在已登录的 agy 上观察 |
+| pwsh 7.4 的包装：退出码、UTF-8、纯文本错误、表格不折行、点源后变量和函数可用、外部程序和 `Read-Host` 读 stdin | `idleTimeoutMs` 租约 | 真实 Windows 上 `taskkill /t` 结束整棵树、FUSE 经 Body 访问 NTFS 的错误码 |
+
+**Claude。** 没有改。Claude 的 Body 回合本来就用 Body 的 MCP 工具，`system_info` 会报告 Windows 和 `availableShells`，
+新的 PowerShell 包装和 `idleTimeoutMs` 也对它生效。要让 Claude 的内置 Bash 和文件工具也在 Windows 上执行，可以用
+`--append-system-prompt` 加同样的说明、`CLAUDE_CODE_SHELL_PREFIX` 加同一个 shim，再配上挂载；这些都没有验证，
+Claude 的参数又受逐字节回归测试约束，所以只写在这里。
 
 **Claude 不变。** Claude Code 的 Bash 工具同样启动 shell，文件工具同样在进程内，同一套 shim、挂载和 PreToolUse hook
 原则上也适用，但没有验证；Claude 的参数和环境受逐字节回归测试约束，所以这次没有改。

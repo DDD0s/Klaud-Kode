@@ -30,12 +30,13 @@ jobs:
       - name: Install API dependencies
         working-directory: Komputer/komputer-api
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Test API, harness round trips and verified HTTPS
-        working-directory: Komputer/komputer-api
-        run: npm test
+      # The API tests run agy turns against a real workstation (Body) process.
       - name: Install workstation dependencies
         working-directory: Komputer/kloud-kode-body
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Test API, harness round trips and verified HTTPS
+        working-directory: Komputer/komputer-api
+        run: npm test
       - name: Test workstation tools
         working-directory: Komputer/kloud-kode-body
         run: npm test

@@ -48,7 +48,7 @@ test("POSIX shells come from PATH", () => {
 test("the PowerShell script and arguments: UTF-8, plain-text errors, bash exit status, long scripts via a file", () => {
   const script = powershellScript("Get-ChildItem");
   assert.match(script, /OutputEncoding = New-Object System\.Text\.UTF8Encoding \$false/);
-  assert.match(script, /\n\. \{\nGet-ChildItem\n\$global:__komputerOk = \$\? \} \| Out-String -Stream -Width 4096\nif \(-not \$global:__komputerOk\)/);
+  assert.match(script, /\n\. \{\nGet-ChildItem\n\$global:__komputerOk = \$\? \} \| Out-String -Stream -Width 4096 \| ForEach-Object \{ \$_\.TrimEnd\(' '\) \}\nif \(-not \$global:__komputerOk\)/);
   assert.doesNotMatch(powershellScript("x", { utf8: false }), /UTF8Encoding/);
 
   const short = powershellArgs("Get-Date");

@@ -47,6 +47,7 @@ for (const shell of ["powershell", "pwsh"]) {
       assert.equal(where.stdout.trim().toLowerCase(), dir.toLowerCase());
       const table = await run("Get-ChildItem -Force", shell, dir);
       assert.ok(table.stdout.split(/\r?\n/).some((l) => l.endsWith(name)), table.stdout);
+      assert.ok(table.stdout.split(/\r?\n/).every((l) => l.length < 400), "lines are not padded to the format width");
       assert.match(table.stdout, /\r\n/, "Windows output keeps CRLF");
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });

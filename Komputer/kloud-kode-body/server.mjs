@@ -263,7 +263,8 @@ const shellPath = (name) => (shellPaths ||= detectShells())[name];
  * records, and bash's exit status rule (the last statement decides; a failed
  * native command passes its own code through). With redirected output,
  * PowerShell formats tables for an 80-column console and wraps or truncates
- * long names; the command's output goes through Out-String -Width instead.
+ * long names; the command's output goes through Out-String -Width instead,
+ * with the trailing spaces Windows PowerShell 5.1 pads each table line with trimmed.
  * The command is dot-sourced, so its variables and functions stay in script scope.
  */
 function powershellScript(command, { utf8 = true } = {}) {
@@ -278,7 +279,7 @@ function powershellScript(command, { utf8 = true } = {}) {
     "$global:__komputerOk = $true",
     ". {",
     command,
-    "$global:__komputerOk = $? } | Out-String -Stream -Width 4096",
+    "$global:__komputerOk = $? } | Out-String -Stream -Width 4096 | ForEach-Object { $_.TrimEnd(' ') }",
     "if (-not $global:__komputerOk) { if ($LASTEXITCODE) { exit $LASTEXITCODE }; exit 1 }",
     "exit 0",
   ].join("\n");

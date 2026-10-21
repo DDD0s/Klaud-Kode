@@ -140,6 +140,8 @@ CLI 自己写进系统提示的环境改不掉：Claude 的 `<env>` 写 `Platfor
 | 已用真实程序跑通 | 是（之前就有） | harness：客户端工具调用往返；Body：`komputer_use` 的 `run_command` 到达真实 Body | 会话和 MCP 启动（echo provider 不会调用工具） |
 | 还需要 | 无 | 已登录账号上跑一次完整回合 | 在真实模型上确认工具调用 |
 
+Muse 的 `-c` 覆盖只翻译带 `url` 的 HTTP MCP 服务；`.mcp.json` 里 `command` 类型的 stdio 服务会被跳过、不会传给 muse（跳过时不报错），Body 模式下给 muse 的配置请用 HTTP 地址。
+
 agy 的 MCP 有一处与 Claude 不同，已用真实 agy 1.4.3 确认：MCP 工具默认“懒加载”，系统提示的 `<mcp_servers>` 只列出服务名和工具名
 （如 `# komputer_use` / `Lazy:` / `k_0_…`），完整说明和参数写在 `~/.gemini/antigravity-cli/mcp/<服务>/<工具>.json`，
 模型要先用 `read_file` 读这个文件，再用 `call_mcp_tool`（`ServerName`、`ToolName`、`Arguments`，都必填）调用。

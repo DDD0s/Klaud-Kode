@@ -2,13 +2,16 @@
 //   KOMPUTER_TEST_REAL_MUSE=/path/to/muse [KOMPUTER_TEST_REAL_MUSE_HOME=/isolated/home]
 //     uses muse's offline echo provider, so no account or network is needed.
 //   KOMPUTER_TEST_REAL_AGY=/path/to/agy [KOMPUTER_TEST_REAL_AGY_HOME=/isolated/home]
-//     uses a fresh signed-out HOME unless one is given; checks MCP and the auth failure path.
+//     uses a fresh signed-out HOME unless one is given; checks MCP and the auth failure path,
+//     then drives agy's own tools on a real Body through a fake Gemini API.
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
-import { apiFixture } from "./helpers.mjs";
+import { apiFixture, haveBody, realBody } from "./helpers.mjs";
+import { fakeGemini, functionResponses } from "./fake-gemini.mjs";
+import { fuseMissing } from "../backends/antigravity.mjs";
 
 const MUSE = process.env.KOMPUTER_TEST_REAL_MUSE;
 const AGY = process.env.KOMPUTER_TEST_REAL_AGY;
@@ -94,4 +97,42 @@ test("real agy (signed out): bridge registration and Body MCP handshake, then 50
   assert.equal(r.json().error.type, "upstream_auth_error");
   assert.ok(body.seen.some((s) => s.method === "tools/list" && s.auth === "Bearer body-token"), `agy listed body tools through the bridge: ${JSON.stringify(body.seen)}`);
   assert.match(f.logs(), /permissions\.allow/, "startup warns that MCP tools need an allow rule");
+});
+
+// The real agy, signed out but pointed at a fake Gemini API, with a real Body standing in for
+// the user's computer: agy's own run_command and file tools must act on the Body, not here.
+test("real agy (Gemini API key, fake API): run_command and file tools act on the user's computer", { skip: (!AGY && "set KOMPUTER_TEST_REAL_AGY") || (!haveBody && "kloud-kode-body dependencies are not installed"), timeout: 180_000 }, async (t) => {
+  const body = await realBody(t);
+  const modes = ["commands", ...((await fuseMissing("python3")).length ? [] : ["all"])];
+  const call = (name, args) => [{ functionCall: { name, args } }];
+  for (const mode of modes) {
+    const gemini = await fakeGemini(t, [
+      call("run_command", { CommandLine: "ls -la; pwd; exit 3", toolSummary: "list", WaitMsBeforeAsync: 5000 }),
+      call("read_file", { Path: `${body.root}/sub/note.md` }),
+      call("read_file", { Path: "/etc/hostname" }),
+      [{ text: "done" }],
+    ]);
+    const f = await apiFixture(t, {
+      env: { KOMPUTER_SKIP_TUNNEL: "1", KOMPUTER_BACKENDS: "antigravity", AGY_BIN: AGY, KOMPUTER_AGY_PERMISSIONS: "skip",
+        KOMPUTER_AGY_REMOTE_TOOLS: mode, GEMINI_API_KEY: "fake-key", GOOGLE_GEMINI_BASE_URL: gemini.url,
+        KOMPUTER_CHILD_ENV_EXTRA: "GOOGLE_GEMINI_BASE_URL" },
+      prepare: (dir) => {
+        fs.writeFileSync(path.join(dir, ".mcp.json"), body.mcpJson);
+        fs.mkdirSync(path.join(dir, "home", ".gemini", "antigravity-cli"), { recursive: true });
+        fs.writeFileSync(path.join(dir, "home", ".gemini", "antigravity-cli", "settings.json"), JSON.stringify({ modelProvider: "gemini" }));
+      },
+    });
+    await f.ready();
+    const r = await f.request("/v1/chat/completions", { model: "komputer-agy", messages: [{ role: "user", content: "list my files" }] },
+      { signal: AbortSignal.timeout(90_000) });
+    assert.equal(r.status, 200, `${mode}: ${r.text}`);
+    assert.equal(r.json().choices[0].message.content, "done");
+    const [command, read, host] = functionResponses(gemini.requests).map((p) => JSON.stringify(p.response));
+    assert.match(command, /Command exited with code 3/, mode);
+    assert.match(command, /only-on-the-users-computer\.txt/, `${mode}: ls -la listed the user's computer`);
+    assert.ok(!command.includes(body.root), `${mode}: paths read as agy's workspace`);
+    if (mode === "all") assert.match(read, /# note/, "read_file reached the user's file through the mount");
+    else assert.match(read, /cannot reach here\. Use run_command/);
+    assert.match(host, mode === "all" ? /denied by pre-tool hook: \/etc\/hostname is on the service host/ : /denied by pre-tool hook: .*read_file cannot reach here/, mode);
+  }
 });

@@ -16,7 +16,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
-import { createReadStream, promises as fs } from "node:fs";
+import { createReadStream, existsSync, writeFileSync, unlinkSync, promises as fs } from "node:fs";
 import { randomUUID, createHash, timingSafeEqual } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -26,7 +26,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { z } from "zod";
 
-const VERSION = "1.2.1";
+const VERSION = "1.3.0";
 const CONFIG_PATH = process.env.KLOUD_KODE_BODY_CONFIG || path.join(os.homedir(), ".kloud-kode-body", "config.json");
 
 // ---------------------------------------------------------------- config
@@ -44,6 +44,8 @@ const DEFAULTS = {
   maxOutputBytes: 256 * 1024,
   maxFileBytes: 8 * 1024 * 1024,
   defaultTimeoutMs: 30_000,
+  /** Windows: run PowerShell and cmd with UTF-8 console output (code page 65001) instead of the OEM code page. */
+  consoleUtf8: true,
   /** stdio MCP servers on this machine, exposed through call_mcp_tool. */
   mcpServers: {},
 };
@@ -209,35 +211,138 @@ function commandEnv() {
 const IS_WINDOWS = process.platform === "win32";
 /** What "default" means on this machine, in words the model can act on. */
 const DEFAULT_SHELL_NAME = IS_WINDOWS ? "cmd.exe" : path.basename(process.env.SHELL || "/bin/sh");
-const SHELLS = ["default", "cmd", "powershell", "pwsh", "bash", "sh"];
+const SHELLS = ["default", "cmd", "powershell", "pwsh", "bash", "sh", "wsl"];
+
+function onPath(names, env, exists, { skip = () => false, paths = path } = {}) {
+  for (const dir of String(env.PATH || env.Path || "").split(paths.delimiter)) {
+    if (!dir) continue;
+    for (const name of names) {
+      const p = paths.join(dir, name);
+      if (!skip(p) && exists(p)) return p;
+    }
+  }
+  return null;
+}
+
+/**
+ * The shells installed here, by the names run_command accepts (null: missing).
+ * On Windows "bash" means Git Bash: the bash.exe in System32 is WSL's launcher,
+ * which runs Linux with different paths, so that one is "wsl" instead.
+ */
+function detectShells({ platform = process.platform, env = process.env, exists = existsSync } = {}) {
+  if (platform !== "win32") {
+    const sh = onPath(["sh"], env, exists) || (exists("/bin/sh") ? "/bin/sh" : null);
+    return { default: sh, sh, bash: onPath(["bash"], env, exists), pwsh: onPath(["pwsh"], env, exists), powershell: null, cmd: null, wsl: null };
+  }
+  const p = path.win32;
+  const sys = env.SystemRoot || env.SYSTEMROOT || "C:\\Windows";
+  const first = (...candidates) => candidates.find((c) => c && exists(c)) || null;
+  const system32 = p.join(sys, "System32").toLowerCase();
+  const win = (names, skip) => onPath(names, env, exists, { paths: p, skip });
+  const cmd = first(env.ComSpec || env.COMSPEC, p.join(sys, "System32", "cmd.exe"));
+  return {
+    default: cmd,
+    cmd,
+    powershell: first(p.join(sys, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")) || win(["powershell.exe"]),
+    pwsh: win(["pwsh.exe"]) || first(env.ProgramFiles && p.join(env.ProgramFiles, "PowerShell", "7", "pwsh.exe")),
+    bash: first(
+      env.ProgramFiles && p.join(env.ProgramFiles, "Git", "bin", "bash.exe"),
+      env["ProgramFiles(x86)"] && p.join(env["ProgramFiles(x86)"], "Git", "bin", "bash.exe"),
+      env.LOCALAPPDATA && p.join(env.LOCALAPPDATA, "Programs", "Git", "bin", "bash.exe"),
+    ) || win(["bash.exe"], (c) => p.dirname(c).toLowerCase() === system32),
+    sh: null,
+    wsl: first(p.join(sys, "System32", "wsl.exe")),
+  };
+}
+
+let shellPaths = null;
+const shellPath = (name) => (shellPaths ||= detectShells())[name];
+
+/**
+ * The script PowerShell runs for a command: UTF-8 console output, no progress
+ * records, and bash's exit status rule (the last statement decides; a failed
+ * native command passes its own code through). With redirected output,
+ * PowerShell formats tables for an 80-column console and wraps or truncates
+ * long names; the command's output goes through Out-String -Width instead.
+ * The command is dot-sourced, so its variables and functions stay in script scope.
+ */
+function powershellScript(command, { utf8 = true } = {}) {
+  return [
+    "$ProgressPreference = 'SilentlyContinue'",
+    ...(utf8
+      ? ["try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch {}",
+          "try { [Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false } catch {}",
+          "$OutputEncoding = New-Object System.Text.UTF8Encoding $false"]
+      : []),
+    "$global:LASTEXITCODE = 0",
+    "$global:__komputerOk = $true",
+    ". {",
+    command,
+    "$global:__komputerOk = $? } | Out-String -Stream -Width 4096",
+    "if (-not $global:__komputerOk) { if ($LASTEXITCODE) { exit $LASTEXITCODE }; exit 1 }",
+    "exit 0",
+  ].join("\n");
+}
+
+/** A Windows command line holds 32767 characters; longer scripts go through a temporary .ps1 file. */
+const MAX_ENCODED_COMMAND = 30_000;
+
+/**
+ * powershell.exe / pwsh arguments. -EncodedCommand sidesteps every layer of
+ * quoting; -OutputFormat Text keeps errors readable (with -EncodedCommand they
+ * otherwise arrive as CLIXML); -InputFormat None stops PowerShell itself from
+ * waiting on a stdin that stays open. Interactive (started) processes may prompt.
+ */
+function powershellArgs(command, { utf8 = true, interactive = false, tmpDir = os.tmpdir() } = {}) {
+  const script = powershellScript(command, { utf8 });
+  const head = ["-NoLogo", "-NoProfile", ...(interactive ? [] : ["-NonInteractive"]), "-ExecutionPolicy", "Bypass",
+    "-InputFormat", "None", "-OutputFormat", "Text"];
+  const encoded = Buffer.from(script, "utf16le").toString("base64");
+  if (encoded.length <= MAX_ENCODED_COMMAND) return { args: [...head, "-EncodedCommand", encoded], file: null };
+  const file = path.join(tmpDir, `kloud-kode-${randomUUID()}.ps1`);
+  // Windows PowerShell 5.1 reads a script without a BOM in the ANSI code page.
+  return { args: [...head, "-File", file], file: { path: file, content: "\uFEFF" + script } };
+}
 
 /**
  * Spawn `command` in the requested shell. "default" is the platform shell
  * (cmd.exe on Windows). Naming a shell runs the command in it directly, which
  * spares the model from nesting PowerShell quoting inside cmd quoting.
  */
-function spawnShell(command, shell, options) {
+function spawnShell(command, shell, options, { utf8 = true, interactive = false } = {}) {
   const base = { windowsHide: true, env: commandEnv(), detached: !IS_WINDOWS, ...options };
+  if (IS_WINDOWS && shell === "default") shell = "cmd";
   switch (shell) {
     case "powershell":
-    case "pwsh":
-      return spawn(shell === "pwsh" ? "pwsh" : "powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], base);
+    case "pwsh": {
+      const exe = shellPath(shell) || (shell === "pwsh" ? "pwsh" : "powershell.exe");
+      const { args, file } = powershellArgs(command, { utf8, interactive });
+      if (file) writeFileSync(file.path, file.content, { mode: 0o600 });
+      const child = spawn(exe, args, base);
+      if (file) child.once("close", () => { try { unlinkSync(file.path); } catch { /* already gone */ } });
+      return child;
+    }
     case "cmd":
-      return spawn(process.env.COMSPEC || "cmd.exe", ["/d", "/s", "/c", `"${command}"`], { ...base, windowsVerbatimArguments: true });
+      return spawn(shellPath("cmd") || process.env.COMSPEC || "cmd.exe", ["/d", "/s", "/c", `"${utf8 && IS_WINDOWS ? "chcp 65001>nul & " : ""}${command}"`],
+        { ...base, windowsVerbatimArguments: true });
+    case "wsl":
+      if (!shellPath("wsl")) throw new Error("WSL is not installed on this computer");
+      return spawn(shellPath("wsl"), ["-e", "bash", "-c", command], base);
     case "bash":
     case "sh":
-      return spawn(shell, ["-c", command], base);
+      if (IS_WINDOWS && shell === "bash" && !shellPath("bash")) throw new Error("bash is not installed on this computer (Git for Windows provides it)");
+      return spawn(IS_WINDOWS ? shellPath(shell) || shell : shell, ["-c", command], base);
     default:
       return spawn(command, { ...base, shell: true });
   }
 }
 
-function runCommand({ command, cwd, timeoutMs, maxOutputBytes, shell = "default" }) {
+function runCommand({ command, cwd, timeoutMs, maxOutputBytes, shell = "default", utf8 = true }) {
   return new Promise((resolve, reject) => {
     const started = Date.now();
     // stdin is closed, so a command that stops to ask a question (cmd's bare
     // `date`, say) gets EOF and ends instead of hanging until the timeout.
-    const child = spawnShell(command, shell, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawnShell(command, shell, { cwd, stdio: ["ignore", "pipe", "pipe"] }, { utf8 });
     const out = new HeadAndTail(maxOutputBytes);
     const err = new HeadAndTail(maxOutputBytes);
     let timedOut = false;
@@ -286,14 +391,29 @@ function runCommand({ command, cwd, timeoutMs, maxOutputBytes, shell = "default"
 
 /** Long-running commands (dev servers, watchers) that outlive a single turn. */
 class Processes {
-  constructor(maxOutputBytes) {
+  constructor(maxOutputBytes, { utf8 = true } = {}) {
     this.max = maxOutputBytes;
+    this.utf8 = utf8;
     this.map = new Map();
   }
-  start(command, cwd, shell = "default") {
+  /**
+   * idleTimeoutMs is a lease: the process is stopped once nobody has read it for
+   * that long, so a caller that died without stop_process leaves nothing behind.
+   */
+  start(command, cwd, shell = "default", { idleTimeoutMs } = {}) {
     const id = randomUUID();
-    const child = spawnShell(command, shell, { cwd, stdio: ["pipe", "pipe", "pipe"] });
-    const rec = { id, command, cwd, shell, child, out: [], err: [], outLen: 0, errLen: 0, exitCode: null, signal: null, finished: false, startedAt: new Date().toISOString() };
+    const child = spawnShell(command, shell, { cwd, stdio: ["pipe", "pipe", "pipe"] }, { utf8: this.utf8, interactive: true });
+    child.stdin.on("error", () => {});
+    const rec = { id, command, cwd, shell, child, out: [], err: [], outLen: 0, errLen: 0, exitCode: null, signal: null, finished: false, startedAt: new Date().toISOString(),
+      idleTimeoutMs: idleTimeoutMs || null, touched: Date.now(), idleStopped: false };
+    if (idleTimeoutMs) {
+      rec.lease = setInterval(() => {
+        if (rec.finished || Date.now() - rec.touched < idleTimeoutMs) return;
+        rec.idleStopped = true;
+        this.stop(id);
+      }, Math.min(idleTimeoutMs, 5_000));
+      rec.lease.unref?.();
+    }
     child.stdout.on("data", (c) => {
       rec.outLen += c.length;
       rec.out.push(c);
@@ -309,6 +429,7 @@ class Processes {
       rec.exitCode = code;
       rec.signal = sig;
       rec.endedAt = new Date().toISOString();
+      clearInterval(rec.lease);
     });
     child.on("error", (e) => {
       rec.finished = true;
@@ -340,6 +461,7 @@ class Processes {
   }
   read(id, outCursor = 0, errCursor = 0) {
     const rec = this.#get(id);
+    rec.touched = Date.now();
     const slice = (which, cursor) => {
       const base = rec[`${which}Base`] || 0;
       const buf = Buffer.concat(rec[which]);
@@ -360,10 +482,12 @@ class Processes {
       stdoutCursor: o.cursor,
       stderrCursor: e.cursor,
       ...(o.missedBytes || e.missedBytes ? { missedBytes: { stdout: o.missedBytes, stderr: e.missedBytes } } : {}),
+      ...(rec.idleStopped ? { idleStopped: true } : {}),
     };
   }
   write(id, input) {
     const rec = this.#get(id);
+    rec.touched = Date.now();
     if (rec.finished) throw new Error("process already exited");
     rec.child.stdin.write(input);
     return { processId: id, wrote: input.length };
@@ -620,7 +744,9 @@ function buildServer(cfg, state) {
       shell: process.platform === "win32" ? process.env.COMSPEC : process.env.SHELL,
       defaultShell: DEFAULT_SHELL_NAME,
       shells: SHELLS,
+      availableShells: SHELLS.filter((s) => shellPath(s)),
       consoleEncoding: CONSOLE_ENCODING,
+      ...(IS_WINDOWS ? { consoleUtf8: cfg.consoleUtf8 !== false } : {}),
       cwdRoot: { name: r.rootName, path: r.root },
       roots: Object.entries(cfg.roots).map(([name, p]) => ({ name, path: p })),
       defaultRoot: cfg.defaultRoot,
@@ -654,6 +780,7 @@ function buildServer(cfg, state) {
           cwd: r.abs,
           timeoutMs: timeoutMs ?? cfg.defaultTimeoutMs,
           maxOutputBytes: cfg.maxOutputBytes,
+          utf8: cfg.consoleUtf8 !== false,
         });
       }
     );
@@ -667,9 +794,11 @@ function buildServer(cfg, state) {
         command: z.string().min(1).max(32_000),
         shell: z.enum(SHELLS).default("default"),
         cwd: z.string().default("."),
+        idleTimeoutMs: z.number().int().min(1_000).max(86_400_000).optional()
+          .describe("Stop the process once read_process has not been called for this long."),
         root: R,
       },
-      async ({ command, shell, cwd, root }) => state.processes.start(command, roots.resolve(cwd, root).abs, shell)
+      async ({ command, shell, cwd, idleTimeoutMs, root }) => state.processes.start(command, roots.resolve(cwd, root).abs, shell, { idleTimeoutMs })
     );
     tool(
       "read_process",
@@ -1074,7 +1203,7 @@ function log(...args) {
 async function main() {
   const mode = process.argv[2] || "http";
   const cfg = await loadConfig();
-  const state = { processes: new Processes(cfg.maxOutputBytes), nested: new NestedMcp(cfg) };
+  const state = { processes: new Processes(cfg.maxOutputBytes, { utf8: cfg.consoleUtf8 !== false }), nested: new NestedMcp(cfg) };
 
   const shutdown = async () => {
     state.processes.killAll();
@@ -1117,4 +1246,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   });
 }
 
-export { buildServer, decodeOutput, readTextWindow, globToRegExp, HeadAndTail, Roots, Processes, loadConfig };
+export { buildServer, decodeOutput, readTextWindow, globToRegExp, HeadAndTail, Roots, Processes, loadConfig, detectShells, powershellScript, powershellArgs, runCommand };

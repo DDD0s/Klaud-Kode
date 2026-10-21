@@ -260,6 +260,16 @@ test("agy hook: remote turns keep paths on the user's computer, island turns all
 
   assert.match(d(call("run_command", { CommandLine: "ls" }), { mode: "island" }).reason, /would act on the service host/);
   assert.equal(d(call("call_mcp_tool", { ServerName: "komputer_use" }), { mode: "island" }), null);
+  const schema = "/home/svc/.gemini/antigravity-cli/mcp/komputer_use/k_0_6dab78873536.json";
+  for (const policy of [{ mode: "island" }, remote, commandsOnly]) {
+    assert.equal(d(call("read_file", { file_path: schema }), policy), null, `${policy.mode}: agy reads its lazy MCP tool schemas`);
+    assert.equal(d(call("list_dir", { DirectoryPath: "~/.gemini/antigravity-cli/mcp/komputer_use" }), policy), null);
+  }
+  assert.match(d(call("write_file", { file_path: schema }), { mode: "island" }).reason, /would act on the service host/, "schemas are read-only");
+  assert.match(d(call("read_file", { file_path: "/home/svc/.gemini/antigravity-cli/mcp/../oauth_creds.json" }), { mode: "island" }).reason, /service host/);
+  assert.match(d(call("read_file", { file_path: "/home/svc/.gemini/antigravity-cli/mcp-other/x" }), { mode: "island" }).reason, /service host/);
+  assert.match(d(call("read_file", { file_path: "mcp/komputer_use/x.json" }), { mode: "island" }).reason, /service host/, "relative paths resolve elsewhere");
+  assert.match(d(call("read_file", {}), { mode: "island" }).reason, /service host/);
   assert.equal(d(call("run_command"), { mode: "local" }), null);
   assert.equal(d(call("run_command"), null), null, "outside the service's turns the hook has no opinion");
 });

@@ -46,6 +46,24 @@ const ownDirs = (input, home) =>
   [input?.artifactDirectoryPath, input?.conversationId && path.join(home, ".gemini", "antigravity-cli", "brain", input.conversationId)]
     .filter(Boolean).map((d) => path.resolve(d));
 
+/** Read-only file tools; agy lists lazy MCP tools by name only and the model reads their schemas with these. */
+export const AGY_READ_TOOLS = new Set(["view_file", "read_file", "list_dir", "grep_search", "find_by_name"]);
+const realish = (p) => {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p;
+  }
+};
+
+/** Every path argument names agy's MCP schema dir (~/.gemini/antigravity-cli/mcp/<server>/<tool>.json), which agy writes itself. */
+function readsMcpSchemas(name, args, home) {
+  if (!AGY_READ_TOOLS.has(name)) return false;
+  const dir = realish(path.join(home, ".gemini", "antigravity-cli", "mcp"));
+  const values = pathArgs(args).flatMap(([, v]) => [].concat(v));
+  return values.length > 0 && values.every((v) => (v.startsWith("/") || v.startsWith("~")) && within(realish(path.resolve(expand(v, home))), dir));
+}
+
 /**
  * Decide one PreToolUse call (null: no opinion). policy.mode: "remote" (built-ins run on the
  * user's computer), "island" (only MCP and agy-internal tools), or "local" (no opinion).
@@ -55,7 +73,7 @@ const ownDirs = (input, home) =>
 export function decide(input, policy, { home = os.homedir() } = {}) {
   const name = String(input?.toolCall?.name || "");
   const args = input?.toolCall?.args || {};
-  if (!policy || policy.mode === "local" || AGY_HOST_FREE.has(name)) return null;
+  if (!policy || policy.mode === "local" || AGY_HOST_FREE.has(name) || readsMcpSchemas(name, args, home)) return null;
   const deny = (reason) => ({ decision: "deny", reason });
   if (policy.mode !== "remote") {
     return deny(`${name} is not available in this conversation: agy's built-in tools would act on the service host. Use the provided tools instead.`);

@@ -10,13 +10,10 @@
 - 完成真实公网 HTTPS、官方 Claude Code 和本地工具的整套测试。目前接口 CI 使用替身 CLI。
 - 用登录后的 agy 和 muse 跑完整回合，核对 [CLI 后端](docs/backends.md) 里标为假设的部分：
   工具步骤字段、MCP 工具调用和权限、用量字段。拿到 agy 的真实输出样例后放进 `test/fixtures/`。
-- agy 的内置工具现在经 bash 替身和 FUSE 挂载在用户电脑上执行（API key 路径已用真实 agy 验证）。
-  还要在已登录的主机上确认：已登录工具集（`view_file`、`list_dir`、`grep_search`、`find_by_name`）的参数名和挂载上的速度，
-  长时间运行的命令与 `command_status`。
-- Windows 用户电脑：每回合的 `<user_computer>` 说明、PowerShell 执行、`C:\` 路径映射、CRLF 编辑和 bash 回退已在模拟的
-  Windows Body 上用真实 agy 跑通，Body 的 cmd、Windows PowerShell 5.1、pwsh 和 Git Bash 在 CI 的 Windows 主机上测试。还要在用户的 Windows 电脑上确认：
-  经 FUSE 访问 NTFS（文件被占用、非法文件名、大小写），模型在已登录 agy 下是否稳定写 PowerShell，以及要不要加规则文件。
-- Claude Code 的 Bash 和文件工具原则上可以用同样的 shell 替身、挂载和 PreToolUse hook 转到用户电脑，需要先验证再决定是否改动。
+- agy 和 Muse 沿用 Claude 的设计（自己的工具关闭，用户电脑经 MCP 到达，环境写在说明里），agy 已用真实程序跑通 harness 和 Body 回合。
+  还要在已登录的 agy 和真实模型的 Muse 上确认工具调用，以及 Windows 用户电脑上模型是否按 `system_info` 写 PowerShell。
+- agy 内置工具经 bash 替身和 FUSE 转到用户电脑（`KOMPUTER_AGY_REMOTE_TOOLS`）现在是默认关闭的实验功能，只支持 POSIX Body。
+  如果共用设计在已登录的 agy 上足够好，可以删掉它（`agy-bash-shim.mjs`、`komputer-fs.py` 和 hook 的 remote 策略）。
 - agy 每次调用要 11–17 秒、约 6.6k token 的基础提示。可以研究为每个对话保留一个通过 stdin 多轮的 agy 进程，
   但要先解决空闲进程的内存（约 240MB）和超时回收。
 - Responses 的回复存储只按数量淘汰，还没有按时间清理。

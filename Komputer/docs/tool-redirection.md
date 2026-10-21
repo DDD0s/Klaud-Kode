@@ -39,3 +39,10 @@ Unicode 路径、超时、断线、取消与长进程；不能只看模型声称
 
 若要求包括 GUI、浏览器和各应用交互在内的“本机能做什么就全都能做”，还需对应的工作站适配器。
 当前通用 shell/文件/进程工具与嵌套 MCP 是基础，并不证明全部 GUI 能力已经实现。
+
+## 多后端
+
+agy 和 Muse 沿用这里的结论：CLI 自己的工具关闭，用户电脑经 `komputer_use`（Body）或客户端工具 MCP（harness）到达，
+环境写在说明里。各后端的接法见 [CLI 后端](backends.md#与-claude-共用的设计)。agy 另有一个默认关闭的实验功能，
+用 bash 替身、FUSE 挂载和 PreToolUse hook 把它的内置工具转到 POSIX 的 Body 上，相当于这里评估过的 shell 包装器加挂载；
+它没有扩展到 Claude，也不支持 Windows。

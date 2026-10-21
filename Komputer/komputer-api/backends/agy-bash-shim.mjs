@@ -8,10 +8,16 @@
 // started with start_process, streamed back with read_process, stdin passed
 // through write_process, stopped with stop_process when agy terminates it.
 // Anything that is not `bash [-opts] -c <command>` runs the real bash.
+//
+// On a Windows computer the command runs in PowerShell (or the configured
+// shell) with mount paths rewritten to Windows paths; CRLF output becomes LF,
+// input lines end in CRLF, and a command that is plainly POSIX shell runs in
+// Git Bash or as a PowerShell translation (remote.posixFallback).
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { mcpHttpClient } from "./mcp-call.mjs";
+import { commandToWindows, crlfToLf, looksPosix, translatePosix } from "./windows.mjs";
 
 const SIGNALS = { SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGKILL: 9, SIGTERM: 15 };
 
@@ -95,16 +101,33 @@ function passthrough(argv) {
 
 const exitCodeOf = (r) => (Number.isInteger(r.exitCode) ? r.exitCode : r.signal ? 128 + (SIGNALS[r.signal] || 1) : 1);
 
+/** Shell and command line for the Body, plus a note for the model when the command was not run as written. */
+export function plan(command, remote) {
+  if (remote.platform !== "win32") return { shell: remote.shell || "bash", text: toRemote(command, remote), note: "" };
+  const shell = remote.shell || "powershell";
+  const fallback = remote.posixFallback || "auto";
+  if ((shell === "powershell" || shell === "pwsh") && fallback !== "off" && looksPosix(command)) {
+    if (fallback !== "translate" && remote.bash) {
+      return { shell: "bash", text: commandToWindows(command, remote, "/"),
+        note: "[komputer] POSIX shell syntax: ran in Git Bash. This computer runs Windows; write PowerShell.\n" };
+    }
+    const translated = fallback !== "bash" ? translatePosix(commandToWindows(command, remote)) : null;
+    if (translated) return { shell, text: translated, note: `[komputer] This computer runs Windows; ran as PowerShell: ${translated}\n` };
+  }
+  return { shell, text: commandToWindows(command, remote), note: "" };
+}
+
+const windowsStreams = (remote) => (remote.platform === "win32" ? [crlfToLf(), crlfToLf()] : [outputMapper(remote), outputMapper(remote)]);
+
 async function run(command, remote) {
   const client = mcpHttpClient(remote.server);
-  const shell = remote.shell || "bash";
+  const { shell, text, note } = plan(command, remote);
   const cwd = remoteCwd(process.cwd(), remote);
-  const text = toRemote(command, remote);
-  const out = outputMapper(remote);
-  const err = outputMapper(remote);
+  const [out, err] = windowsStreams(remote);
+  if (note) process.stderr.write(note);
   let started;
   try {
-    started = await client.call("start_process", { command: text, shell, cwd });
+    started = await client.call("start_process", { command: text, shell, cwd, idleTimeoutMs: remote.idleTimeoutMs || 60_000 });
   } catch (e) {
     if (e.toolError || /not found|unknown tool/i.test(e.message)) return runOnce(client, { command: text, shell, cwd }, remote);
     throw e;
@@ -117,8 +140,12 @@ async function run(command, remote) {
     client.call("stop_process", { processId: id }).catch(() => {}).finally(() => process.exit(128 + (SIGNALS[sig] || 15)));
   };
   for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(sig, () => stop(sig));
+  const crlf = remote.platform === "win32";
+  // Writes go out in order: a reply typed in two pieces must not arrive swapped.
+  let writes = Promise.resolve();
   process.stdin.on("data", (d) => {
-    client.call("write_process", { processId: id, input: d.toString("utf8") }).catch(() => {});
+    const input = crlf ? d.toString("utf8").replace(/\r?\n/g, "\r\n") : d.toString("utf8");
+    writes = writes.then(() => client.call("write_process", { processId: id, input })).catch(() => {});
   });
   process.stdin.on("error", () => {});
   let cursors = { stdoutCursor: 0, stderrCursor: 0 };
@@ -140,8 +167,7 @@ async function run(command, remote) {
 
 async function runOnce(client, args, remote) {
   const r = await client.call("run_command", { ...args, ...(remote.timeoutMs ? { timeoutMs: remote.timeoutMs } : {}) });
-  const out = outputMapper(remote);
-  const err = outputMapper(remote);
+  const [out, err] = windowsStreams(remote);
   process.stdout.write(out.push(r.stdout || "") + out.end());
   process.stderr.write(err.push(r.stderr || "") + err.end());
   if (r.timedOut) process.stderr.write("\n[timed out on the user's computer]\n");

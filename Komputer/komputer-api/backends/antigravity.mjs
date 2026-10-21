@@ -24,6 +24,7 @@ import { buildChildEnv, AGY_KEEP } from "../claude-env.mjs";
 import { backendError, inlineSystem, jsonLine, promptWithText, readMcpServers, splitAttachments } from "./common.mjs";
 import { AGY_HOST_FREE, decide } from "./agy-hook.mjs";
 import { mcpHttpClient } from "./mcp-call.mjs";
+import { environmentNote, isWindowsPath, windowsMountDir } from "./windows.mjs";
 
 const EFFORT_SUFFIX = /-(low|medium|high|xhigh|max)$/i;
 const ORDER = ["low", "medium", "high", "xhigh", "max"];
@@ -116,19 +117,20 @@ const unmountLazy = (dir) =>
 
 /**
  * One FUSE mount of the Body root (komputer-fs.py), shared by every remote turn.
- * Started on first use, restarted when the Body address or token changes, and
- * retried at most every 30 s after a failure. The daemon unmounts when its stdin
- * closes, so the mount goes away with this process.
+ * Started on first use, restarted when the Body address, token or mount directory
+ * changes, and retried at most every 30 s after a failure. The daemon unmounts when
+ * its stdin closes, so the mount goes away with this process.
  */
-function fuseMount({ dir, python, configFile, log }) {
+function fuseMount({ python, configFile, log }) {
   let child = null;
   let key = "";
   let pending = null;
   let failedAt = 0;
+  let current = null;
   const alive = () => child && child.exitCode === null && child.signalCode === null;
   process.once("exit", () => child?.kill("SIGTERM"));
 
-  async function start(server) {
+  async function start(server, dir) {
     if (alive()) {
       const old = child;
       await new Promise((r) => {
@@ -136,6 +138,8 @@ function fuseMount({ dir, python, configFile, log }) {
         old.kill("SIGTERM");
       });
     }
+    if (current && current !== dir) await unmountLazy(current);
+    current = dir;
     // A mount left behind by a crashed run reports "Transport endpoint is not connected".
     await unmountLazy(dir);
     await fs.mkdir(dir, { recursive: true });
@@ -170,15 +174,17 @@ function fuseMount({ dir, python, configFile, log }) {
   }
 
   return {
-    dir,
+    get dir() {
+      return current;
+    },
     /** The mount directory, or null while the Body's files cannot be mounted. */
-    async ensure(server) {
-      const k = JSON.stringify([server.url, server.headers || {}]);
+    async ensure(server, dir) {
+      const k = JSON.stringify([server.url, server.headers || {}, dir]);
       if (k === key && alive() && !pending) return dir;
       if (k === key && pending) return pending;
       if (k === key && Date.now() - failedAt < 30_000) return null;
       key = k;
-      pending = start(server).then(
+      pending = start(server, dir).then(
         () => {
           log(`agy remote files: the Body root is mounted at ${dir}`);
           return dir;
@@ -212,15 +218,18 @@ function fuseMount({ dir, python, configFile, log }) {
 }
 
 const bodyInfoCache = new Map();
-/** The Body's root path and platform from system_info (cached; nulls while it is unreachable). */
+/** The Body's root, platform, OS and shells from system_info (cached; nulls while it is unreachable). */
 async function bodyInfo(server) {
   const key = JSON.stringify([server.url, server.headers || {}]);
   const hit = bodyInfoCache.get(key);
   if (hit && Date.now() - hit.at < (hit.value.root ? 300_000 : 15_000)) return hit.value;
-  let value = { root: null, platform: null };
+  let value = { root: null, platform: null, shells: [] };
   try {
     const r = await mcpHttpClient(server, { timeoutMs: 5_000 }).call("system_info", {});
-    value = { root: typeof r?.cwdRoot?.path === "string" ? r.cwdRoot.path : null, platform: r?.platform || null };
+    const str = (v) => (typeof v === "string" ? v : null);
+    value = { root: str(r?.cwdRoot?.path), platform: str(r?.platform), osVersion: str(r?.osVersion), release: str(r?.release), arch: str(r?.arch),
+      // Bodies before 1.3 do not list their shells; Windows always has these two.
+      shells: Array.isArray(r?.availableShells) ? r.availableShells : r?.platform === "win32" ? ["cmd", "powershell"] : [] };
   } catch {
     /* the turn itself reports an unreachable Body */
   }
@@ -401,7 +410,7 @@ const LOCAL = { mode: "local" };
  * @param {{bin: string, cwd: string, mcpConfig: string, bodyMcp: string, modelId: string, models: string[], defaultModel: string,
  *          defaultEffort: string, efforts: string[], taskModel: string, permissions: "settings"|"skip", mcpSetup: "auto"|"off",
  *          builtinGuard: "stop"|"warn"|"off", remoteTools: "auto"|"all"|"commands"|"off", remoteShell: string, remoteMount: string,
- *          python: string, extraArgs: string[], log?: (msg: string) => void}} cfg
+ *          posixFallback: "auto"|"bash"|"translate"|"off", python: string, extraArgs: string[], log?: (msg: string) => void}} cfg
  */
 export function antigravityBackend(cfg) {
   const ids = [cfg.modelId, ...cfg.models.filter((m) => m !== cfg.modelId)];
@@ -412,8 +421,11 @@ export function antigravityBackend(cfg) {
   const targetDir = path.join(cfg.cwd, "mcp");
   const shimDir = path.join(cfg.cwd, "shim");
   const remoteTools = cfg.remoteTools || "off";
-  const mount = fuseMount({ dir: cfg.remoteMount || path.join(cfg.cwd, "remote"), python: cfg.python || "python3",
-    configFile: path.join(targetDir, "komputer-fs.json"), log });
+  const mountBase = cfg.remoteMount || path.join(cfg.cwd, "remote");
+  const mount = fuseMount({ python: cfg.python || "python3", configFile: path.join(targetDir, "komputer-fs.json"), log });
+  /** Windows roots mount at <base>/c/Users/..., so agy's paths read like WSL's /mnt/c/... */
+  const mountDirFor = (info) => (info.platform === "win32" && isWindowsPath(info.root) ? windowsMountDir(mountBase, info.root) : mountBase);
+  const shellFor = (info) => cfg.remoteShell || (info.platform === "win32" ? (info.shells.includes("pwsh") ? "pwsh" : "powershell") : "bash");
   let files = remoteTools === "all";
   let fuseGaps = [];
   let hooked = false;
@@ -509,6 +521,7 @@ export function antigravityBackend(cfg) {
       // when remote tools are on, or on this host when KOMPUTER_BUILTIN_TOOLS asks for that.
       let policy = ISLAND;
       let remote = null;
+      let note = "";
       if (mcpServer) {
         cwd = path.join(workDir, "agy");
         servers = [mcpServer];
@@ -521,7 +534,8 @@ export function antigravityBackend(cfg) {
         if (tools) policy = LOCAL;
         else if (remoteTools !== "off" && target) {
           const server = { url: target.url, headers: target.headers || {} };
-          const [info, mounted] = await Promise.all([bodyInfo(server), files ? mount.ensure(server) : null]);
+          const info = await bodyInfo(server);
+          const mounted = files && info.root ? await mount.ensure(server, mountDirFor(info)) : null;
           if (remoteTools === "all" && !mounted) {
             throw Object.assign(backendError(503, "The computer is unavailable. Please retry later.", "body_unavailable"),
               { detail: "agy remote files: the Body root is not mounted" });
@@ -529,15 +543,20 @@ export function antigravityBackend(cfg) {
           cwd = mounted || bodyDir;
           await fs.mkdir(cwd, { recursive: true });
           const workspace = await fs.realpath(cwd).catch(() => cwd);
-          remote = { server, mount: workspace, root: info.root, shell: cfg.remoteShell || (info.platform === "win32" ? "default" : "bash") };
-          policy = { mode: "remote", mount: workspace, root: info.root, files: Boolean(mounted), commands: true };
+          const shell = shellFor(info);
+          const bash = info.shells.includes("bash");
+          remote = { server, mount: workspace, root: info.root, platform: info.platform, shell, posixFallback: cfg.posixFallback || "auto", bash };
+          policy = { mode: "remote", mount: workspace, root: info.root, platform: info.platform, files: Boolean(mounted), commands: true };
+          note = environmentNote({ ...info, mount: workspace, shell, files: Boolean(mounted), posixFallback: remote.posixFallback, bash });
         }
       }
       await fs.mkdir(cwd, { recursive: true });
       const body = promptWithText(prompt, text);
+      // Every remote turn: it corrects what agy's own system prompt says about this host, and survives compaction.
+      const turnText = [note, includeSystem ? inlineSystem(systemPrompt, body) : body].filter(Boolean).join("\n\n");
       const prepared = {
         args: agyArgs({ session, model, effort, permissions: cfg.permissions, extraArgs: cfg.extraArgs }),
-        stdin: agyUserEvent(includeSystem ? inlineSystem(systemPrompt, body) : body),
+        stdin: agyUserEvent(turnText),
         cwd,
         parserOptions: { policy, guard: cfg.builtinGuard, skip: cfg.permissions === "skip", hooked },
       };
@@ -581,7 +600,7 @@ export function antigravityBackend(cfg) {
       }
       if (remoteTools !== "off") {
         notes.push(`agy remote tools (${remoteTools}): run_command runs on the user's computer through ${path.join(shimDir, "bash")}; ` +
-          (files ? `file tools use the Body root mounted at ${mount.dir}` : `file tools are denied (the model uses run_command instead)${fuseGaps.length ? `; for the mount install: ${fuseGaps.join(", ")}` : ""}`));
+          (files ? `file tools use the Body root mounted at ${mount.dir || `${mountBase} (a Windows root such as C:\\Users\\me mounts at ${path.join(mountBase, "c", "Users", "me")})`}` : `file tools are denied (the model uses run_command instead)${fuseGaps.length ? `; for the mount install: ${fuseGaps.join(", ")}` : ""}`));
         if (files && !existsSync("/etc/mtab")) notes.push("agy remote files: /etc/mtab is missing, so fusermount3 cannot unmount; link it: ln -s /proc/self/mounts /etc/mtab");
       }
       if (cfg.permissions === "skip") {

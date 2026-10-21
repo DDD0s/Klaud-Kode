@@ -122,8 +122,14 @@ def errno_of(message):
         return errno.EISDIR
     if "enotdir" in m or "not a directory" in m:
         return errno.ENOTDIR
+    if "ebusy" in m or "resource busy" in m or "being used by another process" in m:
+        return errno.EBUSY
     if "outside" in m or "eacces" in m or "eperm" in m or "permission" in m or "climb" in m:
         return errno.EACCES
+    if "einval" in m or "invalid argument" in m or "illegal" in m:
+        return errno.EINVAL
+    if "enametoolong" in m or "name too long" in m:
+        return errno.ENAMETOOLONG
     if "limit is" in m or "too large" in m:
         return errno.EFBIG
     return errno.EIO
@@ -186,7 +192,8 @@ class KomputerFS(Operations):
         kind = info.get("type")
         mode = info.get("mode")
         if kind == "dir":
-            st_mode = stat.S_IFDIR | (mode if isinstance(mode, int) else 0o755)
+            # Windows reports directories as 0666: without the x bits nothing could enter them.
+            st_mode = stat.S_IFDIR | ((mode | 0o111) if isinstance(mode, int) else 0o755)
             nlink = 2
         else:
             st_mode = stat.S_IFREG | (mode if isinstance(mode, int) else 0o644)

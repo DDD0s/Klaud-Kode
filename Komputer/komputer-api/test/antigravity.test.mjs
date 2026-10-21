@@ -4,7 +4,7 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { apiFixture, haveBody, realBody } from "./helpers.mjs";
+import { apiFixture, haveBody, havePwsh, realBody, windowsBody } from "./helpers.mjs";
 import { fuseMissing } from "../backends/antigravity.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -79,8 +79,9 @@ test("agy: routed by model id, session created then resumed with --conversation"
   assert.deepEqual(methods.slice(methods.indexOf("server/discover"), methods.indexOf("server/discover") + 4),
     ["server/discover", "initialize", "notifications/initialized", "tools/list"]);
   const ws = fs.realpathSync(path.join(f.dir, "agy-ws", "body"));
-  assert.deepEqual(c.target.policy, { mode: "remote", mount: ws, root: null, files: false, commands: true }, "Body turns run agy's own tools on the user's computer");
-  assert.deepEqual(c.target.remote, { server: { url: f.body.url }, mount: ws, root: null, shell: "bash" });
+  assert.deepEqual(c.target.policy, { mode: "remote", mount: ws, root: null, platform: null, files: false, commands: true }, "Body turns run agy's own tools on the user's computer");
+  assert.deepEqual(c.target.remote, { server: { url: f.body.url }, mount: ws, root: null, platform: null, shell: "bash", posixFallback: "auto", bash: false });
+  assert.ok(!c.prompt.includes("<user_computer>"), "no environment note when the Body's OS is unknown");
   assert.equal(c.pathHead, path.join(f.dir, "agy-ws", "shim"), "the bash shim comes first on agy's PATH");
   assert.ok(f.body.seen.every((s) => s.auth === "Bearer body-secret"));
   assert.equal(f.body.seen.at(-1).session, "body-session-1", "the bridge keeps the MCP session id");
@@ -356,7 +357,7 @@ test("agy: with the FUSE mount, agy's workspace is the user's files: reads, writ
   assert.equal(r.status, 200, r.text);
   const c = f.agyCalls().at(-1);
   assert.equal(c.cwd, mnt, "agy's workspace is the mount");
-  assert.deepEqual(c.target.policy, { mode: "remote", mount: mnt, root: body.root, files: true, commands: true });
+  assert.deepEqual(c.target.policy, { mode: "remote", mount: mnt, root: body.root, platform: process.platform, files: true, commands: true });
   const [command, mapped, relative, host, write] = f.calls("agy-tools.jsonl");
   assert.match(command.output, new RegExp(`Command output:\\r\\n${mnt}\\r\\nonly-on-the-users-computer\\.txt\\r\\nsub\\r\\n`));
   assert.deepEqual(mapped.args, { Path: path.join(mnt, "sub", "note.md") }, "a path from command output is moved onto the mount");
@@ -370,4 +371,85 @@ test("agy: with the FUSE mount, agy's workspace is the user's files: reads, writ
   await f.exited;
   for (let i = 0; i < 50 && fs.readFileSync("/proc/mounts", "utf8").includes(` ${mnt} `); i++) await new Promise((res) => setTimeout(res, 100));
   assert.ok(!fs.readFileSync("/proc/mounts", "utf8").includes(` ${mnt} `), "the mount goes away with the service");
+});
+
+// A Windows computer, simulated by windowsBody(): a real Body that reports win32 and a
+// C:\ root, runs PowerShell with pwsh and answers with CRLF lines.
+test("agy on a Windows computer: the model is told, run_command runs PowerShell there, paths and POSIX slips are translated", { skip: (!haveBody && "kloud-kode-body dependencies are not installed") || (!havePwsh && "pwsh is not installed") }, async (t) => {
+  const body = await realBody(t);
+  const win = await windowsBody(t, body);
+  const f = await agyFixture(t, { KOMPUTER_AGY_PERMISSIONS: "skip" }, { prepare: (dir) => fs.writeFileSync(path.join(dir, ".mcp.json"), win.mcpJson) });
+  const ws = fs.realpathSync(path.join(f.dir, "agy-ws", "body"));
+  const ask = async (text) => {
+    const r = await chat(f, { model: "komputer-agy", messages: [user(text)] });
+    assert.equal(r.status, 200, r.text);
+    return f.calls("agy-tools.jsonl").at(-1);
+  };
+  const started = () => win.calls.filter((c) => c.name === "start_process").at(-1).args;
+
+  const listed = await ask("BUILTIN<<Get-ChildItem -Name; Get-Content C:\\Users\\me\\proj\\only-on-the-users-computer.txt; (Get-Location).Path; exit 4>>");
+  const c = f.agyCalls().at(-1);
+  assert.ok(c.prompt.startsWith("<user_computer>\n"), "the environment note opens the turn");
+  assert.match(c.prompt, /runs Windows \(Windows 11 Pro 10\.0\.26100, x64\)/);
+  assert.ok(c.prompt.includes(`- Workspace: C:\\Users\\me\\proj. ${ws} is the same folder`));
+  assert.match(c.prompt, /run_command runs Windows PowerShell 5\.1 \(powershell\.exe\)/);
+  assert.match(c.prompt, /<\/user_computer>\n\n<system_instructions>/);
+  assert.deepEqual(c.target.remote, { server: { url: win.url }, mount: ws, root: win.root, platform: "win32", shell: "powershell", posixFallback: "auto", bash: false });
+  assert.equal(c.target.policy.platform, "win32");
+  assert.deepEqual(started(), { command: "Get-ChildItem -Name; Get-Content C:\\Users\\me\\proj\\only-on-the-users-computer.txt; (Get-Location).Path; exit 4",
+    shell: "powershell", cwd: ".", idleTimeoutMs: 60000 });
+  assert.match(listed.output, /^Command exited with code 4\./, "PowerShell's exit code reaches agy");
+  assert.match(listed.output, /Command output:\r\nsub\r\nonly-on-the-users-computer\.txt\r\nhello from the user's computer\r\nC:\\Users\\me\\proj\r\n$/);
+  assert.ok(!listed.output.includes("\r\r\n"), "CRLF from Windows is not doubled by agy's terminal");
+
+  const mapped = await ask(`BUILTIN<<Get-Content ${ws}/only-on-the-users-computer.txt>>`);
+  assert.equal(started().command, "Get-Content C:\\Users\\me\\proj\\only-on-the-users-computer.txt", "agy's workspace path becomes the Windows path");
+  assert.match(mapped.output, /hello from the user's computer/);
+
+  const slipped = await ask("BUILTIN<<ls -la>>");
+  assert.equal(started().command, "Get-ChildItem -Force");
+  assert.match(slipped.output, /\[komputer\] This computer runs Windows; ran as PowerShell: Get-ChildItem -Force/);
+  assert.match(slipped.output, /only-on-the-users-computer\.txt/);
+
+  const read = await ask("READ<<C:\\Users\\me\\proj\\sub\\note.md>>");
+  assert.match(read.error, /cannot reach here\. Use run_command .*Get-Content, Get-ChildItem or Set-Content/, "without the mount, file tools point at PowerShell");
+  assert.deepEqual(fs.readdirSync(ws), [], "nothing ran in the service-side workspace");
+
+  const withBash = await windowsBody(t, body, { shells: ["cmd", "powershell", "pwsh", "bash"] });
+  const g = await agyFixture(t, { KOMPUTER_AGY_PERMISSIONS: "skip" }, { prepare: (dir) => fs.writeFileSync(path.join(dir, ".mcp.json"), withBash.mcpJson) });
+  const r = await chat(g, { model: "komputer-agy", messages: [user("BUILTIN<<ls -la | grep only>>")] });
+  assert.equal(r.status, 200, r.text);
+  assert.equal(g.agyCalls().at(-1).target.remote.shell, "pwsh", "PowerShell 7 is preferred when the computer has it");
+  assert.match(g.agyCalls().at(-1).prompt, /PowerShell 7 \(pwsh\.exe\)/);
+  assert.deepEqual(withBash.calls.filter((x) => x.name === "start_process").at(-1).args.shell, "bash", "a POSIX pipeline runs in Git Bash");
+  const bashed = g.calls("agy-tools.jsonl").at(-1).output;
+  assert.match(bashed, /\[komputer\] POSIX shell syntax: ran in Git Bash/);
+  assert.match(bashed, /only-on-the-users-computer\.txt/);
+});
+
+test("agy on a Windows computer with the FUSE mount: C:\\ paths reach the user's files, CRLF files can be edited", { skip: !haveBody ? "kloud-kode-body dependencies are not installed" : fuseGaps.length ? `no FUSE here: ${fuseGaps.join(", ")}` : false }, async (t) => {
+  const body = await realBody(t);
+  fs.writeFileSync(path.join(body.root, "crlf.txt"), "line one\r\nline two\r\nline three\r\n");
+  const win = await windowsBody(t, body);
+  const f = await agyFixture(t, { KOMPUTER_AGY_PERMISSIONS: "skip", KOMPUTER_AGY_REMOTE_TOOLS: "all" }, { prepare: (dir) => fs.writeFileSync(path.join(dir, ".mcp.json"), win.mcpJson) });
+  const mnt = path.join(f.dir, "agy-ws", "remote", "c", "Users", "me", "proj");
+  const r = await chat(f, { model: "komputer-agy", messages: [user("READ<<C:\\Users\\me\\proj\\sub\\note.md>> READ<<sub\\note.md>> READ<<D:\\elsewhere\\x.txt>> " +
+    "READ<<C:\\Users\\me\\secret.txt>> WRITE<<c:/users/me/proj/from-agy.txt>> EDIT<<C:\\Users\\me\\proj\\crlf.txt>>")] });
+  assert.equal(r.status, 200, r.text);
+  const c = f.agyCalls().at(-1);
+  assert.equal(c.cwd, mnt, "a Windows root mounts at <base>/c/Users/...");
+  assert.match(c.prompt, /The file tools reach only files inside C:\\Users\\me\\proj/);
+  const [note, relative, otherDrive, outside, write, edit] = f.calls("agy-tools.jsonl");
+  assert.deepEqual(note.args, { Path: path.join(mnt, "sub", "note.md") });
+  assert.equal(note.output, "# note\n");
+  assert.deepEqual(relative.args, { Path: path.join(mnt, "sub", "note.md") }, "a relative path with backslashes");
+  assert.equal(relative.output, "# note\n");
+  assert.match(otherDrive.error, /D:\\elsewhere\\x\.txt is outside the user's workspace C:\\Users\\me\\proj/);
+  assert.match(outside.error, /C:\\Users\\me\\secret\.txt is outside the user's workspace/);
+  assert.equal(write.output, "");
+  assert.equal(fs.readFileSync(path.join(body.root, "from-agy.txt"), "utf8"), "written by agy\n");
+  assert.equal(edit.args.Target, "line one\r\nline two", "the hook matched the file's CRLF line endings");
+  assert.equal(edit.output, "edited");
+  assert.equal(fs.readFileSync(path.join(body.root, "crlf.txt"), "utf8"), "LINE ONE\r\nLINE TWO\r\nline three\r\n");
+  assert.ok(!win.calls.some((x) => x.name === "start_process"), "file tools never needed a command");
 });

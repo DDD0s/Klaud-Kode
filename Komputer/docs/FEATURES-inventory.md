@@ -421,7 +421,8 @@ residual. With that baseline, these PR #1 assumptions contradict the design:
 1. **The built-in-tool guard.** `KOMPUTER_AGY_BUILTIN_GUARD` (`stop` / `warn` / `off`) and
    the `builtin_tool_blocked` 502 error are new mechanisms. Main has no guard because it
    has nothing to guard: isolation is structural (`--tools ""` plus `--strict-mcp-config`).
-   For agy the equivalent is to not offer its built-ins at all, where the CLI allows it.
+   agy has no `--tools ""` flag, so PR #1's PreToolUse hook in its island policy is the
+   closest substitute for that removal. The turn-killing guard on top of it is extra.
 2. **"MCP-only tools" treated as a limitation.** PR #1 treated the model using MCP tools
    instead of the CLI's own tools as a gap to close. On main it is the design: the Body's
    MCP tools (or the client's) are the hands, and `tool-redirection.md` explains why.

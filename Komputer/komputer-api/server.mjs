@@ -1020,7 +1020,7 @@ async function runCliTurn(backend, turn) {
     const canonical = await fs.realpath(cwd).catch(() => cwd);
     return await spawnCli(backend, { ...prepared, cwd, canonical }, { session: turn.session, privateMcp: Boolean(turn.mcpConfig), hooks });
   } finally {
-    prepared.cleanup?.();
+    await prepared.cleanup?.();
   }
 }
 

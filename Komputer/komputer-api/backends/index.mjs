@@ -47,7 +47,7 @@ export function createBackends(env, { workspaceRoot, instanceId, claudeCwd, mcpC
         permissions: (env.KOMPUTER_AGY_PERMISSIONS || "settings").toLowerCase(),
         mcpSetup: (env.KOMPUTER_AGY_MCP_SETUP || "auto").toLowerCase(),
         builtinGuard: (env.KOMPUTER_AGY_BUILTIN_GUARD || "warn").toLowerCase(),
-        remoteTools: (env.KOMPUTER_AGY_REMOTE_TOOLS || "auto").toLowerCase(),
+        remoteTools: (env.KOMPUTER_AGY_REMOTE_TOOLS || "off").toLowerCase(),
         remoteShell: env.KOMPUTER_AGY_REMOTE_SHELL || "",
         remoteMount: path.resolve(env.KOMPUTER_AGY_REMOTE_MOUNT || path.join(cwd, "remote")),
         python: env.KOMPUTER_AGY_PYTHON || "python3",
@@ -82,7 +82,7 @@ export function createBackends(env, { workspaceRoot, instanceId, claudeCwd, mcpC
   if (byName.has("antigravity") && !["stop", "warn", "off"].includes((env.KOMPUTER_AGY_BUILTIN_GUARD || "warn").toLowerCase())) {
     throw new Error("KOMPUTER_AGY_BUILTIN_GUARD must be stop, warn or off");
   }
-  if (byName.has("antigravity") && !["auto", "all", "commands", "off"].includes((env.KOMPUTER_AGY_REMOTE_TOOLS || "auto").toLowerCase())) {
+  if (byName.has("antigravity") && !["auto", "all", "commands", "off"].includes((env.KOMPUTER_AGY_REMOTE_TOOLS || "off").toLowerCase())) {
     throw new Error("KOMPUTER_AGY_REMOTE_TOOLS must be auto, all, commands or off");
   }
   const ids = new Set();

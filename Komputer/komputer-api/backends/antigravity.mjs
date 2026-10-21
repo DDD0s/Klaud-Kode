@@ -418,6 +418,7 @@ export function antigravityBackend(cfg) {
   let fuseGaps = [];
   let hooked = false;
   let bridgeNames = [];
+  let warnedWin32 = false;
   const setupNotes = [];
   /** komputer-gemini-4-argon → gemini-4-argon; komputer-agy-claude-opus-5-5 → claude-opus-5-5. */
   const resolveModel = (requested) => {
@@ -521,16 +522,24 @@ export function antigravityBackend(cfg) {
         if (tools) policy = LOCAL;
         else if (remoteTools !== "off" && target) {
           const server = { url: target.url, headers: target.headers || {} };
-          const [info, mounted] = await Promise.all([bodyInfo(server), files ? mount.ensure(server) : null]);
-          if (remoteTools === "all" && !mounted) {
-            throw Object.assign(backendError(503, "The computer is unavailable. Please retry later.", "body_unavailable"),
-              { detail: "agy remote files: the Body root is not mounted" });
+          const info = await bodyInfo(server);
+          // The shim and the mount speak POSIX; a Windows computer is reached the way Claude reaches it,
+          // through the komputer_use tools with agy's own tools off.
+          if (info.platform === "win32") {
+            if (!warnedWin32) log(`remote tools (${remoteTools}) are POSIX-only; the Windows computer is used through ${cfg.bodyMcp} with agy's own tools off`);
+            warnedWin32 = true;
+          } else {
+            const mounted = files ? await mount.ensure(server) : null;
+            if (remoteTools === "all" && !mounted) {
+              throw Object.assign(backendError(503, "The computer is unavailable. Please retry later.", "body_unavailable"),
+                { detail: "agy remote files: the Body root is not mounted" });
+            }
+            cwd = mounted || bodyDir;
+            await fs.mkdir(cwd, { recursive: true });
+            const workspace = await fs.realpath(cwd).catch(() => cwd);
+            remote = { server, mount: workspace, root: info.root, shell: cfg.remoteShell || "bash" };
+            policy = { mode: "remote", mount: workspace, root: info.root, files: Boolean(mounted), commands: true };
           }
-          cwd = mounted || bodyDir;
-          await fs.mkdir(cwd, { recursive: true });
-          const workspace = await fs.realpath(cwd).catch(() => cwd);
-          remote = { server, mount: workspace, root: info.root, shell: cfg.remoteShell || (info.platform === "win32" ? "default" : "bash") };
-          policy = { mode: "remote", mount: workspace, root: info.root, files: Boolean(mounted), commands: true };
         }
       }
       await fs.mkdir(cwd, { recursive: true });

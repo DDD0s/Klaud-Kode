@@ -15,8 +15,9 @@ const NOTE_START = "You work on the user's computer.";
 const BASE = ["--input-format", "stream-json", "--output-format", "stream-json"];
 
 /** Streamable HTTP MCP server standing in for the body; answers with SSE like the MCP SDK can. */
-async function bodyServer(t) {
+async function bodyServer(t, { platform } = {}) {
   const seen = [];
+  const info = { platform, cwdRoot: { name: "project", path: platform === "win32" ? "C:\\Users\\u\\project" : "/home/u/project" } };
   const server = http.createServer(async (req, res) => {
     let raw = "";
     for await (const c of req) raw += c;
@@ -26,7 +27,8 @@ async function bodyServer(t) {
     const reply = msg.method === "initialize"
       ? { result: { protocolVersion: msg.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "body", version: "1" } } }
       : msg.method === "tools/list" ? { result: { tools: [{ name: "system_info", inputSchema: { type: "object", properties: {} } }] } }
-        : { error: { code: -32601, message: "Method not found" } };
+        : msg.method === "tools/call" && platform ? { result: { content: [{ type: "text", text: JSON.stringify(info) }] } }
+          : { error: { code: -32601, message: "Method not found" } };
     res.writeHead(200, { "content-type": "text/event-stream", "mcp-session-id": "body-session-1" });
     res.end(`event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: msg.id, ...reply })}\n\n`);
   });
@@ -35,8 +37,8 @@ async function bodyServer(t) {
   return { url: `http://127.0.0.1:${server.address().port}/mcp`, seen };
 }
 
-async function agyFixture(t, env = {}, { prepare = () => {} } = {}) {
-  const body = await bodyServer(t);
+async function agyFixture(t, env = {}, { prepare = () => {}, platform } = {}) {
+  const body = await bodyServer(t, { platform });
   const f = await apiFixture(t, {
     // "commands" keeps these tests off FUSE, whether or not this host could mount.
     env: { KOMPUTER_SKIP_TUNNEL: "1", KOMPUTER_BACKENDS: "claude,antigravity", KOMPUTER_AGY_REMOTE_TOOLS: "commands", ...env },
@@ -322,6 +324,23 @@ test("agy: island turns never run agy's own tools: the hook denies them first, t
   assert.equal(o.status, 200, "Body turns that opted into built-in tools on this host are not guarded");
   assert.match(open.calls("agy-tools.jsonl").at(-1).output, /^Command exited with code 0\.\r\n\r\nCommand output:\r\nlocal\r\n$/);
   assert.equal(open.calls("agy-host-commands.jsonl").length, 1);
+});
+
+test("agy: by default Body turns work like Claude's (agy's own tools off, the computer through komputer_use); the redirect is POSIX-only", async (t) => {
+  const f = await agyFixture(t, { KOMPUTER_AGY_REMOTE_TOOLS: undefined, KOMPUTER_AGY_PERMISSIONS: "skip" });
+  let r = await chat(f, { model: "komputer-agy", messages: [user("BUILTIN list files")] });
+  assert.equal(r.status, 200, r.text);
+  assert.deepEqual(f.agyCalls().at(-1).target.policy, { mode: "island" });
+  assert.match(f.calls("agy-tools.jsonl").at(-1).error, /run_command is not available in this conversation/);
+  assert.deepEqual(f.calls("agy-host-commands.jsonl"), []);
+  assert.doesNotMatch(f.logs(), /agy remote tools/);
+
+  const win = await agyFixture(t, { KOMPUTER_AGY_PERMISSIONS: "skip" }, { platform: "win32" });
+  r = await chat(win, { model: "komputer-agy", messages: [user("BUILTIN dir")] });
+  assert.equal(r.status, 200, r.text);
+  assert.deepEqual(win.agyCalls().at(-1).target.policy, { mode: "island" }, "KOMPUTER_AGY_REMOTE_TOOLS=commands, but the computer is Windows");
+  assert.equal(win.agyCalls().at(-1).target.remote, undefined);
+  assert.match(win.logs(), /remote tools \(commands\) are POSIX-only; the Windows computer is used through komputer_use with agy's own tools off/);
 });
 
 test("agy: in Body turns run_command runs on the user's computer through the bash shim, file tools are kept off this host", { skip: !haveBody && "kloud-kode-body dependencies are not installed" }, async (t) => {

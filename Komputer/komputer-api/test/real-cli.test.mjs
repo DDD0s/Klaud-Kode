@@ -3,9 +3,10 @@
 //     uses muse's offline echo provider, so no account or network is needed.
 //   KOMPUTER_TEST_REAL_AGY=/path/to/agy [KOMPUTER_TEST_REAL_AGY_HOME=/isolated/home]
 //     uses a fresh signed-out HOME unless one is given; checks MCP and the auth failure path,
-//     then drives agy's own tools on a real Body through a fake Gemini API.
+//     then drives harness and Body turns, and agy's own tools on a real Body, through a fake Gemini API.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -135,4 +136,71 @@ test("real agy (Gemini API key, fake API): run_command and file tools act on the
     else assert.match(read, /cannot reach here\. Use run_command/);
     assert.match(host, mode === "all" ? /denied by pre-tool hook: \/etc\/hostname is on the service host/ : /denied by pre-tool hook: .*read_file cannot reach here/, mode);
   }
+});
+
+const agyEnv = (gemini, extra = {}) => ({ KOMPUTER_SKIP_TUNNEL: "1", KOMPUTER_BACKENDS: "antigravity", AGY_BIN: AGY, KOMPUTER_AGY_PERMISSIONS: "skip",
+  GEMINI_API_KEY: "fake-key", GOOGLE_GEMINI_BASE_URL: gemini.url, KOMPUTER_CHILD_ENV_EXTRA: "GOOGLE_GEMINI_BASE_URL", ...extra });
+const geminiSettings = (dir) => {
+  fs.mkdirSync(path.join(dir, "home", ".gemini", "antigravity-cli"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "home", ".gemini", "antigravity-cli", "settings.json"), JSON.stringify({ modelProvider: "gemini" }));
+};
+const geminiText = (requests) => JSON.stringify(requests.map((q) => [q.body?.systemInstruction, q.body?.contents]));
+
+// The design Claude uses, through the real agy: the client's tools and environment reach the model,
+// the client runs the tool on its own computer, and agy's own tools stay off.
+test("real agy (Gemini API key, fake API): harness turn: lazy schema read, the client's tool on the client, result back to agy", { skip: !AGY && "set KOMPUTER_TEST_REAL_AGY", timeout: 180_000 }, async (t) => {
+  const alias = `k_0_${createHash("sha256").update(JSON.stringify("Bash")).digest("hex").slice(0, 12)}`;
+  let home;
+  const gemini = await fakeGemini(t, [
+    [{ functionCall: { name: "read_file", args: { get Path() { return path.join(home, ".gemini", "antigravity-cli", "mcp", "komputer_use", `${alias}.json`); } } } }],
+    [{ functionCall: { name: "call_mcp_tool", args: { ServerName: "komputer_use", ToolName: alias, Arguments: { command: "Get-ChildItem" } } } }],
+    [{ text: "done" }],
+  ]);
+  const f = await apiFixture(t, { env: agyEnv(gemini), prepare: geminiSettings });
+  home = path.join(f.dir, "home");
+  await f.ready();
+  const tools = [{ type: "function", function: { name: "Bash", description: "Run a shell command on the user's computer",
+    parameters: { type: "object", properties: { command: { type: "string" } }, required: ["command"] } } }];
+  const messages = [
+    { role: "system", content: "You are a coding agent.\n<env>\nWorking directory: C:\\Users\\me\\proj\nPlatform: win32\n</env>" },
+    { role: "user", content: "list my files" },
+  ];
+  const opts = { signal: AbortSignal.timeout(90_000) };
+  const first = await f.request("/v1/chat/completions", { model: "komputer-agy", messages, tools }, opts);
+  assert.equal(first.status, 200, first.text + f.logs());
+  assert.equal(first.headers.get("x-komputer-mode"), "harness");
+  const choice = first.json().choices[0];
+  assert.equal(choice.finish_reason, "tool_calls");
+  const [call] = choice.message.tool_calls;
+  assert.equal(call.function.name, "Bash");
+  assert.deepEqual(JSON.parse(call.function.arguments), { command: "Get-ChildItem" });
+  const [schema] = functionResponses(gemini.requests).map((p) => JSON.stringify(p.response));
+  assert.match(schema, /Bash: Run a shell command on the user's computer/, "the hook lets agy read its own lazy MCP schema");
+  assert.match(geminiText(gemini.requests), /Platform: win32/, "the client's environment reaches the model");
+
+  const next = await f.request("/v1/chat/completions", { model: "komputer-agy", tools,
+    messages: [...messages, choice.message, { role: "tool", tool_call_id: call.id, content: "Mode  Name\r\nd---- src" }] }, opts);
+  assert.equal(next.status, 200, next.text + f.logs());
+  assert.equal(next.json().choices[0].message.content.trim(), "done");
+  const responses = functionResponses(gemini.requests).map((p) => JSON.stringify(p.response));
+  assert.match(responses.at(-1), /d---- src/, "the client's result reached agy");
+});
+
+test("real agy (Gemini API key, fake API): Body turn by default: agy's own tools off, the computer through komputer_use", { skip: (!AGY && "set KOMPUTER_TEST_REAL_AGY") || (!haveBody && "kloud-kode-body dependencies are not installed"), timeout: 180_000 }, async (t) => {
+  const body = await realBody(t);
+  const gemini = await fakeGemini(t, [
+    [{ functionCall: { name: "run_command", args: { CommandLine: "ls", toolSummary: "list", WaitMsBeforeAsync: 5000 } } }],
+    [{ functionCall: { name: "call_mcp_tool", args: { ServerName: "komputer_use", ToolName: "run_command", Arguments: { command: "ls" } } } }],
+    [{ text: "done" }],
+  ]);
+  const f = await apiFixture(t, { env: agyEnv(gemini), prepare: (dir) => (fs.writeFileSync(path.join(dir, ".mcp.json"), body.mcpJson), geminiSettings(dir)) });
+  await f.ready();
+  const r = await f.request("/v1/chat/completions", { model: "komputer-agy", messages: [{ role: "user", content: "list my files" }] },
+    { signal: AbortSignal.timeout(90_000) });
+  assert.equal(r.status, 200, r.text + f.logs());
+  assert.equal(r.json().choices[0].message.content, "done");
+  const [own, remote] = functionResponses(gemini.requests).map((p) => JSON.stringify(p.response));
+  assert.match(own, /denied by pre-tool hook: run_command is not available in this conversation/);
+  assert.match(remote, /only-on-the-users-computer\.txt/, "komputer_use ran the command on the Body");
+  assert.match(geminiText(gemini.requests), /You work on the user's computer\..*system_info/, "the shared work note reaches the model");
 });

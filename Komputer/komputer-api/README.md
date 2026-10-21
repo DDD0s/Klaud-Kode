@@ -184,7 +184,10 @@ Claude Code 自身的提示、用户配置、memory 或 skills 仍可能带入�
 | `KOMPUTER_AGY_EFFORTS` | `low,medium,high` | Gemini 模型允许的强度，更高的值降档 |
 | `KOMPUTER_AGY_PERMISSIONS` | `settings` | `settings` 使用 agy 自己的权限设置；`skip` 传 `--dangerously-skip-permissions` |
 | `KOMPUTER_AGY_MCP_SETUP` | `auto` | `auto` 启动时用 `agy mcp add` 在 agy 全局配置中注册 MCP 转接器；`off` 只检查并提示 |
-| `KOMPUTER_AGY_BUILTIN_GUARD` | `stop` | island 回合中 agy 内置工具在服务主机上运行时：`stop` 结束回合并返回 502，`warn` 只记日志，`off` 不检查 |
+| `KOMPUTER_AGY_REMOTE_TOOLS` | `auto` | Body 回合里 agy 自己的工具在哪里执行：`auto` 命令在用户电脑上，能用 FUSE 时文件工具也经挂载在用户电脑上；`all` 要求挂载；`commands` 只转发命令、拒绝文件工具；`off` 全部拒绝。见 [CLI 后端](../docs/backends.md#agy-的内置工具在用户电脑上执行) |
+| `KOMPUTER_AGY_REMOTE_SHELL` | 空 | 远端执行命令的 shell，默认 `bash`（Windows Body 为 `default`） |
+| `KOMPUTER_AGY_REMOTE_MOUNT` / `KOMPUTER_AGY_PYTHON` | `<agy 工作目录>/remote` / `python3` | Body 根目录的 FUSE 挂载点，以及运行 `komputer-fs.py`（需要 fusepy）的解释器 |
+| `KOMPUTER_AGY_BUILTIN_GUARD` | `warn` | agy 的工具步骤在执行后仍被策略判为“在服务主机上”时：`warn` 记日志，`stop` 结束回合并返回 502，`off` 不检查 |
 | `KOMPUTER_AGY_CWD` / `KOMPUTER_MUSE_CWD` | `~/.komputer/workspaces/<实例摘要>-agy` / `-muse` | agy、muse 的工作目录 |
 | `KOMPUTER_MUSE_MODEL_ID` / `KOMPUTER_MUSE_MODELS` | `komputer-muse` / 空 | Muse 的模型名 |
 | `KOMPUTER_MUSE_MODEL` / `KOMPUTER_MUSE_EFFORT` / `KOMPUTER_MUSE_TASK_MODEL` | 空 | Muse 的默认模型、强度和后台任务模型 |

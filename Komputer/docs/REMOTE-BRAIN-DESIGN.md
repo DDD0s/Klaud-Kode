@@ -1,28 +1,35 @@
 # 远程大脑设计（brain-in-a-vat / island mode）
 
 扫描基线：`main` `7cb0323`（PR #1 已合并）。API `kloud-kode-api` 0.10.0，工作站 `kloud-kode-body` 1.3.0。
-本文只记录目标、现状和远程大脑这一条下一步。不改代码。
+本文只记录目标、现状，以及远程大脑后续工作应遵守的判据。不改代码。
 
-`docs/FEATURES-inventory.md` 写于合并前的 `90753b7`，最后一节把「关掉官方内置工具、改走 MCP」当成设计、把内置工具转发当成偏离。合并后的代码默认确实如此。那不是本文的目标。本文以原始远程大脑意图为准。
+`docs/FEATURES-inventory.md` 写于合并前的 `90753b7`，记录的是当时已经落地的设计：关掉官方内置工具，改走 MCP。它不是远程大脑完成与否的判据。本文用一条更高的判据回看这些做法：云端 CLI 里的模型必须认为自己正运行在调用者的本地电脑上。工具叫什么名字、由哪个后端承载，都排在这条判据之后。
 
 ## 目标
 
-模型永远只相信一台机器：调用者正在用的那台电脑（常常是 Windows）。shell 的 stdout、stderr 和退出码必须来自那台电脑。
+### 最高约束：模型必须认为自己就在本地电脑上
 
-官方客户端（`agy`、`muse`、`claude`）可以跑在 Linux 上。工具仍然在调用者的操作系统上执行。大脑在 Linux、身体在 Windows 时，PowerShell、路径映射和换行都要按调用者的机器处理。映射是实现细节，模型看见的路径、shell 和结果都是调用者的。
+云端 CLI 运行时，模型必须认为自己正运行在调用者的本地电脑上。这是远程大脑的定义，不是体验修饰，优先级高于选哪个 CLI、工具叫什么名字、走 harness 还是 Body。
 
-优先把官方客户端自己的内置工具透明转到调用者机器上（harness 或 Body）。模型继续调用它已经会的工具名（对 agy 就是 `run_command`、`read_file` 一类）。MCP 遥控桩（`komputer_use`、`k_<序号>_<摘要>`）不是模型的主要双手。内置工具被调用时，回合继续，把调用者的结果交回去。
+因此，模型能看见和使用的操作系统、shell、工作目录、根目录、文件、进程、时区、命令输出、错误与退出码，必须共同指向调用者那台电脑（常常是 Windows），而且这些操作必须真的发生在那台电脑上。不能一边让工具在本地执行，一边用大脑主机的工作区、home、工具说明、拒绝理由或副作用告诉模型还有另一台机器；也不能只改提示里的 OS 字样，冒充执行位置已经改变。验收要核对调用者机器上的副作用、返回字节，以及全部模型可见输入和输出是否只组成这一台电脑的现实，不能只听模型自称它在哪里。
+
+官方 CLI 是可替换的大脑，可以跑在 Linux 或其他大脑主机上。Claude 是本项目最初研究和实现的样本，不是产品身份。使用 `agy` 时，要的也只是它的模型与会话引擎，不是 Antigravity 的客户端和本地工具层；那一层必须关掉、替换或转到调用者机器。其他 CLI 同理。
+
+本地入口有两条同等重要的链路：harness 负责客户端自己的界面、权限和工具时，结果由 harness 在调用者电脑上产生；客户端只聊天时，由 Body 在调用者电脑上执行。两者是到达同一台电脑的两种执行接法，不是主线与备选。
+
+模型的双手按后端机制选择：官方内置工具透明转发、harness 自己的工具、Body 的 MCP 工具都可以。透明转发有价值，是因为它保留模型已经熟悉的工具语义；MCP 也可以只在底下传输，或作为模型可见的本地能力呈现。关键不是工具名，而是模型不需要理解远端与本地的分离，工具就表现为这台电脑本身的能力，并且权限、取消、长进程、路径、shell、输出和副作用都按这台电脑工作。不能在调用者机器上完成的操作，不要包装成本地能力。
 
 Island mode 是这台机器的口吻：模型可见的文字不出现两台机器，也不出现 “service host”。现实由 `system_info` 以及 Body / harness 的真实执行呈现：操作系统、shell、时区、根目录、退出码、输出。
 
-先做完远程大脑。半代理 / 混合模式只记为以后再说，本文不设计它。
+实现可以按后端和工具能力分阶段，但判据不降级。阶段性混合实现必须如实标注哪些能力已在调用者机器上、哪些只是大脑内部或网络动作、哪些还不存在；不得靠关掉工具后让回合失败来冒充远程大脑已经完成。
 
-默认 `KOMPUTER_BACKENDS=claude` 的纯 Claude 通路保持今天的行为。见下一节。
+默认 `KOMPUTER_BACKENDS=claude` 的纯 Claude 通路在各自验收完成前保持今天的行为。见下一节。
 
 ## 非目标
 
-- 不设计半代理 / 混合模式。那是「官方内置工具关掉或只转一部分，同时把另一套 MCP 工具交给模型当双手」，以及「有的官方工具留在跑 CLI 的主机上、有的转到调用者」。现状里已有这种默认。把它做成长期产品，不在这一步。
-- 这一步不改默认 Claude 通路，也不把 Muse、Claude 的内置工具转发排进同一批验收。
+- 不把任何一家 CLI、任何一种工具名定为唯一正统。后端和实现顺序按实际日常使用组合与机制可行性决定，不按厂商偏好，也不只按哪个最容易拦截决定。
+- 不接受“标成本地能力、实际在大脑主机执行”的混合状态。分阶段实现可以存在，但每项能力的真实执行位置必须说清，不能用阶段性实现冒充最高约束已经满足。
+- 任一后端在通过自己的远程大脑验收前，不改变它的既有默认行为。
 - 不用伪造操作系统代替真实执行。改提示里的 OS 字样、改工具名字，都不改变命令实际跑在哪。
 - 不把「拒绝内置工具并结束回合」当成隔离手段。
 - 不在模型可见文字里解释有两台机器。
@@ -42,9 +49,9 @@ Island mode 是这台机器的口吻：模型可见的文字不出现两台机�
 - `--tools ""`（`KOMPUTER_BUILTIN_TOOLS` 默认空）。Bash、Read、Write、Edit、Glob、Grep、Task、网页工具都关掉。`default` 才会恢复 CLI 自带工具，那些工具跑在 CLI 所在的主机上。
 - 没有客户端工具时走 Body：`komputer-session/.mcp.json` 里的 `komputer_use`，工作说明要求模型用 `mcp__komputer_use__*`，并先调用 `system_info`。
 - 请求带非空 `tools` 或显式 `tool_choice` 时走 harness：`client-tools.mjs` 在本机回环上起一个只含本次客户端工具的 MCP，工具名是 `k_<序号>_<摘要>`，结果由调用者的 harness 执行后经同一条 HTTP 连接返回。官方内置工具同样关掉。
-- 工作说明的注释要求只描述一台电脑，不提启动器、第二台机器或本地/远端（`server.mjs` 里 `DEFAULT_WORK_NOTE` 上方）。说明正文仍然把 MCP 工具写成双手。
+- 工作说明的注释要求只描述一台电脑，不提启动器、第二台机器或本地/远端（`server.mjs` 里 `DEFAULT_WORK_NOTE` 上方）。说明正文把这组 MCP 工具写成到达 shell 和文件的方式。
 
-这条默认通路在远程大脑做完之前保持这样。打开 `antigravity` 或 `muse` 才进入下面的多后端行为。
+这条默认通路在它通过自己的远程大脑验收前保持这样。打开 `antigravity` 或 `muse` 才进入下面的多后端行为。
 
 ### 多后端和 Responses
 
@@ -124,11 +131,11 @@ agy 的 MCP 工具默认懒加载。模型要先用 `read_file` 读 `~/.gemini/a
 
 相对目标，这些还没有。
 
-1. **模型的双手不是官方内置工具。** 三个后端的默认都是关掉或拒绝 CLI 自己的 shell/文件工具，再把 MCP 桩交给模型。agy 的转发默认关闭。这和「透明转发官方内置工具」相反。MCP 可以留在转发的底下（shim 今天就是经 Body MCP 执行的），但不能是模型被教会去调用的那一层。
-2. **Windows 调用者没有内置 `run_command` 转发。** 大脑在 Linux、Body 报 `win32` 时，打开 `KOMPUTER_AGY_REMOTE_TOOLS` 也会退回 island。shim 不改写非 POSIX 根，远端 shell 默认 `bash`。没有 PowerShell 路径。验收标准因此今天达不到。
-3. **harness 不转发官方内置工具。** agy 的 harness 回合策略固定为 island：`run_command` 被拒绝，调用者执行的是 `k_*`。目标要求同一条 `run_command` 的结果来自调用者，无论执行者是 Body 还是 harness。
+1. **模型看见的还不是一台完整的本地电脑。** 三个后端今天分别用关掉、拒绝或限制 CLI 自带工具，再经 MCP 到达本地执行；执行位置可以正确，但 CLI 注入的大脑环境、脑端工作区、工具呈现和拒绝理由仍会同时出现。问题不在于模型调用的是官方工具名还是 MCP 名字，而在于这些输入没有共同组成调用者这一台电脑。透明转发、harness 工具和 Body 工具都要按这个标准补齐，而不是任选其一就算完成。
+2. **Windows 调用者没有内置 `run_command` 转发。** 大脑在 Linux、Body 报 `win32` 时，打开 `KOMPUTER_AGY_REMOTE_TOOLS` 也会退回 island。shim 不改写非 POSIX 根，远端 shell 默认 `bash`。没有 PowerShell 路径。若选择 agy 内置工具作为这条链的执行面，这项验收今天达不到；改用 harness/Body 的本地工具是另一条要单独把环境做完整的路线。
+3. **agy 的 harness 回合还没有形成完整的本地工具面。** harness 本身是合格的本地执行者，`k_*` 也可以只是本次调用的内部映射；缺口在于 agy 自己的 `run_command` 等工具会被 island 拒绝，模型随后需要在 `k_*` 与被拒绝的自带工具之间改道。它应当只面对一套连贯的本地能力：可以由 harness 原生工具呈现，也可以把选定的 CLI 内置工具转到 harness，但不能靠带两台机器含义的拒绝来拼凑。
 4. **文件工具在 Windows 调用者上没有落点。** FUSE 挂载不能代表 `C:\`。撤回的那一版把 Windows 根映射到挂载下的 `c/Users/...`，当前树里没有。
-5. **Muse 只有关闭开关，没有把自己的 shell/写入转到调用者。** Claude 只有 `--tools ""`，没有把 Bash/Read/Write 转到调用者。二者都留到 agy 的 Windows `run_command` 验收之后。
+5. **各后端让内置能力落到调用者的办法都还不完整。** Muse 只有 `--disable-shell --disable-write --disable-web-tools`，没有把自己的 shell/写入转到调用者；Claude 只有 `--tools ""`，没有把 Bash/Read/Write 转到调用者。今天二者都靠 MCP 到达本地。今后每个后端按同一条最高约束逐一验收，顺序不在本文预先绑定为某一家先行。
 6. **模型看见的工作区仍是大脑的。** 默认工作目录是 `~/.komputer/workspaces/<摘要>`。CLI 的系统提示仍写 Linux。没有一层把模型要用的路径显示成调用者的 `C:\`，同时让读写落在那台机器上。
 7. **懒加载工具说明把模型带进大脑的 home。** 要读 `~/.gemini/antigravity-cli/mcp/...` 才知道 `k_0_…` 是什么。远程大脑不把这条读盘当成正常路径。
 8. **Responses 没有改变执行位置。** function 工具进入现有 harness；不带工具的请求进入现有 Body。
@@ -139,8 +146,8 @@ agy 的 MCP 工具默认懒加载。模型要先用 `read_file` 读 `~/.gemini/a
 
 - **拒绝文案告诉模型有两台机器。** `agy-hook.mjs` 在 island 策略下的理由是：内置工具会作用在 “service host” 上，让模型改用提供的工具。remote 策略下，浏览器类工具、挂载外的路径，理由同样写出 “service host” 和 “the user's computer”。这些字符串会进模型。Island mode 不允许这种口吻。
 - **内置工具会结束回合。** `KOMPUTER_AGY_BUILTIN_GUARD=stop` 杀掉 agy 并返回 `builtin_tool_blocked`。默认 `warn` 只打日志，但 `stop` 已实现并有测试。已登录且 `always-proceed` 时，拒绝发生之前命令可能已经在大脑上跑完。目标是：内置工具的调用得到调用者的结果，回合不因此结束。
-- **工作说明把 MCP 桩写成双手。** `DEFAULT_WORK_NOTE` 写明用 `mcp__komputer_use__*` 到达 shell 和文件。这和「官方内置工具才是双手」冲突。`system_info` 本身没有这个问题。
-- **文档把 MCP 默认写成设计。** `docs/backends.md` 的「与 Claude 共用的设计」、`docs/tool-redirection.md` 末节、`env.example` 里对 `KOMPUTER_AGY_REMOTE_TOOLS` 的注释、`FEATURES-inventory.md` 第 15 节，都把关掉内置工具当成目标，把转发当成可删的 POSIX 实验。它们描述的是今天的默认，不是本文的目标。
+- **用 MCP 工具本身不是冲突，呈现方式才是。** `DEFAULT_WORK_NOTE` 写明用 `mcp__komputer_use__*` 到达 shell 和文件。若这些工具被呈现并实际表现为这台电脑自己的能力，它可以是模型的双手；若说明、工具名、schema 读取或错误让模型先理解一套远端拓扑，再去遥控另一台电脑，就违反最高约束。`system_info` 应只报告这台电脑的现实。
+- **现有文档的完成标准比最高约束低。** `docs/backends.md` 的「与 Claude 共用的设计」、`docs/tool-redirection.md` 末节、`env.example` 里对 `KOMPUTER_AGY_REMOTE_TOOLS` 的注释、`FEATURES-inventory.md` 第 15 节，主要以“不在大脑执行、改经 MCP 到本地”判定隔离成立，并把内置工具转发写成可删的 POSIX 实验。它们准确描述今天的默认，但没有要求模型所见的工作区、home、shell、路径和拒绝理由也只组成调用者的电脑；不能拿它们替代本文的验收标准。
 - **`KOMPUTER_BUILTIN_TOOLS` 非空时，官方工具跑在 CLI 主机上**（agy 的 hook 策略 `local` 不干预）。结果不是调用者的。这是今天的开关，不是远程大脑的做法。
 
 ## 已知坑
@@ -158,31 +165,32 @@ agy 的 MCP 工具默认懒加载。模型要先用 `read_file` 读 `~/.gemini/a
 - **FUSE 解决不了 Windows 根。** 它把文件字节搬到大脑上搜索，CPU 在大脑。Windows 调用者的文件工具要在调用者上执行（Body 的文件工具或 harness），路径映射只负责让 agy 进程内的读写对上 `C:\`。
 - **全局 `hooks.json` 和 `mcp_config.json` 属于运行服务的那个系统用户。** 手动开的 agy 会带上同一个 hook。hook 在没有本回合策略文件时必须不输出，这个行为要保持。
 - **已登录工具名和 API key 路径的工具名不一样**（`view_file` / `list_dir` / `grep_search` 对 `read_file` / `write_file`）。转发和放行名单要两套都认。
-- **CLI 自己的 “OS is linux” 一行去不掉。** 不要用第二段文字向模型解释「忽略另一台主机」。工作说明只描述调用者这一台，并让它用 `system_info` 的结果下命令、写路径。完全替换系统提示的 `KOMPUTER_SYSTEM_PROMPT_FILE` 只有 Claude 有，仍是实验，这一步不靠它。
+- **CLI 自己的 “OS is linux” 一行目前去不掉。** 不要用第二段文字向模型解释「忽略另一台主机」。工作说明只描述调用者这一台，并让它用 `system_info` 的结果下命令、写路径。但只要这行仍进入模型上下文，最高约束就只能算部分满足，必须把它列为明确的环境泄漏，不能用本地执行成功把它勾销。完全替换系统提示的 `KOMPUTER_SYSTEM_PROMPT_FILE` 只有 Claude 有，仍是实验。
 
-## 推荐下一步（只远程大脑）
+## 推荐下一步（先让一台电脑的现实完整）
 
-只做 agy。官方客户端跑在 Linux，调用者是 Windows，模型调用的是 agy 自己的 `run_command`，结果来自那台 Windows。默认 `KOMPUTER_BACKENDS=claude` 不动，`claude-regression` 保持通过。
+不要按厂商列队，也不要只按哪个 CLI 最容易拦截来排序。先选一条实际日常使用的大脑与本地入口组合，把它做到模型只面对调用者这一台电脑；然后再按实际使用和机制可行性逐个后端推进。选择 agy 时，它只是云端的大脑，不是 Antigravity 客户端或本地工具层的替代品；选择 Claude 或 Muse 时同样如此。未通过验收的后端保留现有默认行为，不提前改 `KOMPUTER_BACKENDS` 的默认值，Claude 的既有回归锁继续保持。
 
-1. **Body 回合。** Linux 上的 agy 发出 `run_command` 时，命令在调用者的 Windows 上执行。shell 用这台电脑的 PowerShell（有 `pwsh` 用 `pwsh`，否则 Windows PowerShell 5.1），经 Body 1.3.0 已有的启动方式。退出码、stdout、stderr、CRLF 原样回到 agy。模型看见和使用的路径是调用者的 `C:\` 路径；Linux 工作区和 `C:\` 之间的改写留在 shim / hook 内部。
-2. **回合不因这次内置调用而结束。** 这条路径上不使用会杀掉进程的 guard。转发失败时，模型拿到的是这次执行的失败（调用者 shell 的错误，或这一台电脑上的「没能运行」），然后继续。不要返回 `builtin_tool_blocked`。
-3. **模型可见文字只描述这一台电脑。** 用现有工作说明的单一机器口吻，加上 `system_info`。不要写 “service host”，不要告诉模型去改用 `komputer_use`。Body MCP 只作为 `run_command` 底下的传输。若 hook 仍须拒绝浏览器一类无法转到调用者的工具，理由只说这个工具在这台电脑上不可用，不提到另一台机器。
-4. **harness 同一条工具。** 调用者的 harness 执行 agy 的 `run_command`，把 Windows 结果交回。这一步不要求模型改口去调 `k_*`。
-5. **然后才是 agy 的文件工具**（`view_file`、`read_file`、`write_file`、`edit_file` 以及已登录的对应名字）。仍是远程大脑：读写发生在调用者的 Windows 文件上，模型看到的是那些路径。不要用 POSIX FUSE 挂载充当 Windows 方案，也不要在这一步打开「部分工具留在大脑上」的模式。
-6. **Muse 和 Claude 的内置工具转发等第 1 步验收通过后再开。** 在那之前不要改 `KOMPUTER_BACKENDS` 的默认值。
+1. **先定环境合同。** 从 `system_info` 或 harness 自己的环境信息取得调用者电脑的 OS、shell、工作根、当前目录、时区和编码。模型实际使用的 cwd 与路径要是这台电脑的路径；大脑工作区到调用者路径的改写留实现内部。CLI 自行注入的大脑 OS/cwd 是明确泄漏，要寻找受支持的消除或中和方式并单独验收，不靠追加一段“忽略另一台机器”的文字。
+2. **再统一执行面。** harness 与 Body 两条链路都算数。每个后端可选官方内置工具透明转发、harness 自己的本地工具或 Body 工具，但模型面对的应是一套连贯能力：shell、文件与进程都在调用者电脑上，权限、取消、超时和退出码按那台电脑工作。若选 agy 的内置 `run_command`，一条可行路径是经现有 shim 交给 Windows 上的 PowerShell（有 `pwsh` 用 `pwsh`，否则 5.1）；若选 harness 工具，就让 harness 的本地 shell 工具成为这条链的执行面，不必强迫它冒充 `run_command`。做到哪一种，就按哪一种验收并如实命名。
+3. **回合不能因工具归属而结束。** 已纳入本地执行面的调用，失败时把调用者 shell 或工具的真实失败交回模型继续处理，不用会杀掉 CLI 的 guard 代替一次本地执行。无法在调用者电脑完成、且仍会暴露大脑的能力不向模型呈现为本地工具。若不得不拒绝，理由只说该能力在这台电脑上不可用，不写 “service host”，不解释拓扑。
+4. **补齐文件和进程的一致性。** 读写、编辑、搜索、长进程与 stdin 都要在调用者电脑上发生，模型看到调用者的路径。不要用 POSIX FUSE 挂载充当 Windows 文件方案；内部映射不能改变 CRLF、退出码或路径语义。
+5. **逐个后端验收，不预设先后。** 每接一个大脑，都用同一套最高约束复核它注入的系统提示、工作目录、home/schema 读取、工具列表和错误文案。机制上已有的 agy shim、hook 与挂载可以复用或借鉴，但不因 agy 先被量过就把产品顺序锁死在 agy。
 
-半代理 / 混合模式（MCP 桩继续当模型的主界面，或官方工具一部分留在大脑、一部分转到调用者，作为一种支持的模式）推迟，本文不展开。
+分阶段或混合实现不是原罪；把仍在大脑上发生、或让模型看见大脑环境的部分说成已完成，才是问题。
 
 ## 验收标准
 
-Linux 上跑官方 `agy`（不是替身）。调用者是 Windows，Body 或 harness 在那台电脑上。用一次真实回合核对，假 CLI 单测不能代替。
+按选定的真实日常组合验收：正式官方 CLI（不是替身）跑在大脑主机上，调用者是 Windows，本地 harness 或 Body 在那台电脑上。用真实回合核对，假 CLI 单测不能代替。工具呈现方式在验收记录中写明，分别判断“执行已在本地”和“模型只面对本地电脑”两件事。
 
-- 模型调用的工具名是 agy 的 `run_command`，不是 `mcp__komputer_use__run_command`，也不是 `k_*`。
-- 一条能暴露机器身份的命令（例如 PowerShell 的 `hostname`，或 `(Get-Location).Path`）返回这台 Windows 的主机名或 `C:\` 路径，退出码是这台机器上的退出码。
-- PowerShell 5.1 的错误是普通文本，不是 CLIXML。表格行没有被补到列宽。输出里的 CRLF 按这台机器保留。
-- 回合完成。没有 `builtin_tool_blocked`。hook 不因为「这是内置工具」而拒绝 `run_command`。
-- 这一回合里模型能看见的说明、工具结果和拒绝理由（如果有别的工具被拒绝）不出现 “service host”，也不说有两台机器。
-- 若模型调用 `system_info`，结果是 `platform: "win32"`、这台机器的 shell 列表和 `C:\` 根。不另加一段文字教它忽略 Linux 那一行。
-- 同一构建上，不设置 `KOMPUTER_BACKENDS`（即默认 `claude`）时，`test/claude-regression.test.mjs` 仍与固定的 Claude argv、stdin 和子进程环境一致。
+- 一条能暴露机器身份的命令（例如 `hostname`、`(Get-Location).Path`）返回这台 Windows 的结果；模型随后自然地按这台机器的 shell 与 `C:\` 路径继续工作，不需要被告知去忽略另一台主机。
+- 文件新建/编辑和一个长进程的副作用只出现在调用者电脑上；检查大脑工作区没有对应文件或进程树。模型收到的路径是调用者的路径，而不是大脑工作区路径冒充本地路径。
+- shell 的 stdout、stderr、退出码与 CRLF 和直接在调用者电脑上运行一致。Windows PowerShell 5.1 的错误是普通文本而非 CLIXML，表格不补列宽空格。
+- 回合不会因为模型使用了已纳入执行面的本地能力而被 `builtin_tool_blocked` 一类机制终止；真实的命令失败按本地失败返回并可继续。
+- 模型能看见的说明、工具说明、工具结果和拒绝理由不出现 “service host”，不解释本地/远端、大脑/身体或隧道。若选定的是透明转发，模型调用的就是该 CLI 的自带工具名；若选定的是 harness/Body 工具，验收记录不把它写成透明转发。
+- 模型不需要进入大脑的 home、全局配置或 schema 目录，才能知道这台电脑有哪些能力。若某 CLI 的这条读盘仍无法避免，记为未通过最高约束的缺口。
+- CLI 自行注入的大脑 OS、cwd、home、memory、skills 或用户配置若仍能进入模型上下文，逐项列为环境泄漏并判为部分通过；不能用“命令确实在本地跑了”抵销。完整通过要求模型可见环境与实际副作用都只指向调用者的电脑。
+- `system_info`（或 harness 的等价环境信息）报告的是调用者电脑；若命令实际使用的 shell 与其中 `defaultShell` 不同，模型可见说明必须与实际执行面一致，只描述这一台电脑。
+- 同一构建上，未改默认后端的既有通路保持兼容；默认仍为 `claude` 时，`test/claude-regression.test.mjs` 继续与固定的 Claude argv、stdin 和子进程环境一致。
 
-通过的判据是调用者 Windows 上的副作用和返回字节，不是模型自称它在哪台机器上。
+通过的判据始终是调用者电脑上的副作用、返回字节以及模型可见上下文的一致性，不是模型自称它在哪台机器上。

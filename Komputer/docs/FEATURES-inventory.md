@@ -6,8 +6,8 @@ tests, CI) and all 14 commit messages. Nothing here describes PR #1 except the l
 section, which lists where PR #1's assumptions disagree with this design.
 
 Versions on main: API `kloud-kode-api` 0.9.0, workstation `kloud-kode-body` 1.2.1.
-Product name "Kloud Kode by Kosmolopic"; internal name `komputer` (earlier "AgentVR",
-retired by an explicit, tested rename); the Body was earlier "cloudcode-body".
+Product name "Kloud Kode by Kosmolopic"; internal name `komputer` (an earlier internal
+name was retired by an explicit, tested rename, so it is not repeated here).
 
 ## 1. What it is, in one paragraph
 
@@ -397,7 +397,7 @@ public domains, specific harness clients.
 
 | Commit | Change |
 | --- | --- |
-| `fc9ca7b` | Initial review snapshot (AgentVR naming; built-in tools still default) |
+| `fc9ca7b` | Initial review snapshot (pre-rename naming; built-in tools still default) |
 | `5a410a9`, `5e07c08` | Credit Claude; executable bits and ignores |
 | `3a11b52` | Stop narrating the plumbing to the model |
 | `55fd7fb` | Body 1.1.0: `run_command` picks its shell |

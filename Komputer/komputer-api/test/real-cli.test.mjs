@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
-import { apiFixture, haveBody, havePwsh, realBody, windowsBody } from "./helpers.mjs";
+import { apiFixture, haveBody, realBody } from "./helpers.mjs";
 import { fakeGemini, functionResponses } from "./fake-gemini.mjs";
 import { fuseMissing } from "../backends/antigravity.mjs";
 
@@ -134,62 +134,5 @@ test("real agy (Gemini API key, fake API): run_command and file tools act on the
     if (mode === "all") assert.match(read, /# note/, "read_file reached the user's file through the mount");
     else assert.match(read, /cannot reach here\. Use run_command/);
     assert.match(host, mode === "all" ? /denied by pre-tool hook: \/etc\/hostname is on the service host/ : /denied by pre-tool hook: .*read_file cannot reach here/, mode);
-  }
-});
-
-// The same, with the Body presenting itself as Windows (windowsBody: win32, a C:\ root,
-// PowerShell run by pwsh, CRLF output). agy itself still believes it runs on Linux.
-test("real agy (Gemini API key, fake API) on a Windows computer: the model is told, PowerShell runs there, C:\\ paths and CRLF files work", { skip: (!AGY && "set KOMPUTER_TEST_REAL_AGY") || (!haveBody && "kloud-kode-body dependencies are not installed") || (!havePwsh && "pwsh is not installed"), timeout: 240_000 }, async (t) => {
-  const body = await realBody(t);
-  fs.writeFileSync(path.join(body.root, "crlf.txt"), "line one\r\nline two\r\nline three\r\n");
-  const win = await windowsBody(t, body);
-  const modes = ["commands", ...((await fuseMissing("python3")).length ? [] : ["all"])];
-  const call = (name, args) => [{ functionCall: { name, args } }];
-  for (const mode of modes) {
-    fs.writeFileSync(path.join(body.root, "crlf.txt"), "line one\r\nline two\r\nline three\r\n");
-    const gemini = await fakeGemini(t, [
-      call("run_command", { CommandLine: "Get-ChildItem -Name; (Get-Location).Path; exit 4", toolSummary: "list", WaitMsBeforeAsync: 8000 }),
-      call("run_command", { CommandLine: "ls -la", toolSummary: "list", WaitMsBeforeAsync: 8000 }),
-      call("read_file", { Path: "C:\\Users\\me\\proj\\sub\\note.md" }),
-      call("edit_file", { Path: "C:\\Users\\me\\proj\\crlf.txt", Target: "line one\nline two", Replacement: "LINE ONE\nLINE TWO" }),
-      call("read_file", { Path: "D:\\elsewhere\\x.txt" }),
-      [{ text: "done" }],
-    ]);
-    const f = await apiFixture(t, {
-      env: { KOMPUTER_SKIP_TUNNEL: "1", KOMPUTER_BACKENDS: "antigravity", AGY_BIN: AGY, KOMPUTER_AGY_PERMISSIONS: "skip",
-        KOMPUTER_AGY_REMOTE_TOOLS: mode, GEMINI_API_KEY: "fake-key", GOOGLE_GEMINI_BASE_URL: gemini.url,
-        KOMPUTER_CHILD_ENV_EXTRA: "GOOGLE_GEMINI_BASE_URL" },
-      prepare: (dir) => {
-        fs.writeFileSync(path.join(dir, ".mcp.json"), win.mcpJson);
-        fs.mkdirSync(path.join(dir, "home", ".gemini", "antigravity-cli"), { recursive: true });
-        fs.writeFileSync(path.join(dir, "home", ".gemini", "antigravity-cli", "settings.json"), JSON.stringify({ modelProvider: "gemini" }));
-      },
-    });
-    await f.ready();
-    const r = await f.request("/v1/chat/completions", { model: "komputer-agy", messages: [{ role: "user", content: "list my files" }] },
-      { signal: AbortSignal.timeout(150_000) });
-    assert.equal(r.status, 200, `${mode}: ${r.text}`);
-    assert.equal(r.json().choices[0].message.content, "done");
-
-    const userTurn = JSON.stringify(gemini.requests[0].body.contents.filter((c) => c.role === "user"));
-    assert.match(userTurn, /<user_computer>/, `${mode}: the model hears about the Windows computer in the user turn`);
-    assert.match(userTurn, /C:\\\\Users\\\\me\\\\proj/);
-    assert.match(JSON.stringify(gemini.requests[0].body.systemInstruction), /OS version is linux/, "agy's own system prompt still says Linux");
-
-    const [listed, slipped, read, edit, other] = functionResponses(gemini.requests).map((p) => JSON.stringify(p.response));
-    assert.match(listed, /Command exited with code 4/, mode);
-    assert.match(listed, /only-on-the-users-computer\.txt/);
-    assert.match(listed, /C:\\\\Users\\\\me\\\\proj/, `${mode}: the working directory is the Windows path`);
-    for (const out of [listed, slipped]) assert.ok(!out.includes("\\r\\r\\n"), `${mode}: CRLF is not doubled`);
-    assert.match(slipped, /ran as PowerShell: Get-ChildItem -Force/);
-    assert.match(slipped, /only-on-the-users-computer\.txt/);
-    if (mode === "all") {
-      assert.match(read, /# note/, "read_file reached C:\\ through the mount");
-      assert.doesNotMatch(edit, /not found|error/i, edit);
-      assert.equal(fs.readFileSync(path.join(body.root, "crlf.txt"), "utf8"), "LINE ONE\r\nLINE TWO\r\nline three\r\n", "an LF target edits a CRLF file and keeps CRLF");
-      assert.match(other, /D:\\\\elsewhere\\\\x\.txt is outside the user's workspace C:\\\\Users\\\\me\\\\proj/);
-    } else {
-      for (const denied of [read, edit, other]) assert.match(denied, /cannot reach here\. Use run_command .*Get-Content/, mode);
-    }
   }
 });

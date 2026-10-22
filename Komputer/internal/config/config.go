@@ -25,6 +25,19 @@ type ListenAddress struct {
 func (a ListenAddress) String() string { return net.JoinHostPort(a.Host, strconv.Itoa(a.Port)) }
 
 // Claude holds the Claude Code backend settings.
+// Muse holds the Muse Code backend settings.
+type Muse struct {
+	Bin           string
+	Cwd           string
+	MCPConfig     string
+	ModelID       string
+	Models        []string
+	DefaultModel  string
+	DefaultEffort string
+	TaskModel     string
+	ExtraArgs     []string
+}
+
 type Claude struct {
 	Bin              string
 	Cwd              string
@@ -92,8 +105,11 @@ type Config struct {
 	AllowInsecureHTTP bool
 	CORSOrigins       map[string]bool
 
-	NodeBin string
-	Claude  Claude
+	NodeBin        string
+	Backends       []string
+	DefaultBackend string
+	Claude         Claude
+	Muse           Muse
 }
 
 func truthy(v string) bool {
@@ -240,7 +256,7 @@ func Load(source map[string]string) (Config, error) {
 		if !ok {
 			return cfg, fmt.Errorf("KOMPUTER_BACKENDS: unknown backend %q (use claude, antigravity, muse)", n)
 		}
-		if name != "claude" {
+		if name == "antigravity" {
 			return cfg, fmt.Errorf("backend %q is not yet implemented in the Go rewrite", name)
 		}
 		if !seen[name] {
@@ -248,13 +264,18 @@ func Load(source map[string]string) (Config, error) {
 			names = append(names, name)
 		}
 	}
+	if len(names) == 0 {
+		return cfg, fmt.Errorf("KOMPUTER_BACKENDS must name at least one backend")
+	}
+	cfg.Backends = names
+	cfg.DefaultBackend = names[0]
 	if def, ok := e["KOMPUTER_DEFAULT_BACKEND"]; ok {
 		name := backendAliases[strings.ToLower(def)]
 		if !seen[name] {
 			return cfg, fmt.Errorf("KOMPUTER_DEFAULT_BACKEND must be one of KOMPUTER_BACKENDS")
 		}
+		cfg.DefaultBackend = name
 	}
-
 	var err error
 	if cfg.Port, err = e.intValue("KOMPUTER_API_PORT", 18888); err != nil {
 		return cfg, err
@@ -405,6 +426,18 @@ func Load(source map[string]string) (Config, error) {
 		DefaultEffort:    e.get("KOMPUTER_EFFORT", ""),
 		TaskModel:        e.getSet("KOMPUTER_TASK_MODEL", "haiku"),
 		SystemPromptFile: cfg.SystemPromptFile,
+	}
+	museCwd, _ := filepath.Abs(e.get("KOMPUTER_MUSE_CWD", filepath.Join(cfg.WorkspaceRoot, cfg.InstanceID+"-muse")))
+	cfg.Muse = Muse{
+		Bin:           e.get("MUSE_BIN", "muse"),
+		Cwd:           museCwd,
+		MCPConfig:     cfg.MCPConfig,
+		ModelID:       e.get("KOMPUTER_MUSE_MODEL_ID", "komputer-muse"),
+		Models:        list(e.get("KOMPUTER_MUSE_MODELS", ""), ""),
+		DefaultModel:  e.get("KOMPUTER_MUSE_MODEL", ""),
+		DefaultEffort: e.get("KOMPUTER_MUSE_EFFORT", ""),
+		TaskModel:     e.getSet("KOMPUTER_MUSE_TASK_MODEL", ""),
+		ExtraArgs:     strings.Fields(e.get("KOMPUTER_MUSE_EXTRA_ARGS", "")),
 	}
 	return cfg, nil
 }

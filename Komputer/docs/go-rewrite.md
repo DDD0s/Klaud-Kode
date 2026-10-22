@@ -27,10 +27,13 @@ stay at the edge. None of them is allowed to become the internal model.
 
 ## Implemented so far
 
-- Claude backend only: exact argv shape, stream-json parser, child
+- Claude and Muse backends behind one registry (exact advertised ids,
+  then backend patterns). Muse covers argv and prompt files, JSONL parsing
+  with missing-session bail, usage, env-interpolated MCP `-c` overrides,
+  base64 images, inline-system session hashing and error classification.
+- Claude exact argv shape, stream-json parser, child
   environment allowlist, appended system prompt file, attachments via
   `--input-format stream-json`.
-- `POST /v1/chat/completions` and `POST /v1/messages`:
   streaming (deferred SSE) and non-streaming, stateless, task and session
   turns, divergence reseeding, missing-session recovery, duplicate-turn
   attach/replay, global in-flight cap and per-session serialization.
@@ -57,7 +60,7 @@ stay at the edge. None of them is allowed to become the internal model.
 
 Explicitly not implemented yet (requests fail with 501 where applicable):
 
-- Antigravity and Muse backends, all agy helper processes, FUSE
+- The Antigravity backend, all agy helper processes, FUSE
 - Key reload on SIGHUP and the connection cap
 
 ## Validation so far
@@ -66,7 +69,8 @@ Explicitly not implemented yet (requests fail with 501 where applicable):
   integration tests that run the existing `test/fake-claude.mjs` double:
   stateless chat, streamed chat, session create and `--resume`, Anthropic
   Messages, auth rejection, child-env non-leakage, plus OpenAI and Anthropic
-  harness tool cycles that continue the same fake-Claude process, an
+  harness tool cycles that continue the same fake-Claude process, Muse
+  session create/resume and missing-session reseeding, images and errors, an
   explicit tool-run cancellation, and Responses non-streaming/streaming,
   previous-response session resume, function tools through the harness,
   image-store privacy and delete.
@@ -77,7 +81,7 @@ Explicitly not implemented yet (requests fail with 501 where applicable):
 
 ## Next slices
 
-1. Antigravity and Muse backends, including their helper subcommands.
+1. The Antigravity backend, including its helper subcommands.
 2. Caller-environment binding and the model-visible leak gate from
    `docs/REMOTE-BRAIN-DESIGN.md`, then a real signed-in acceptance run.
 3. Deployment switch with the JavaScript build kept as the rollback.

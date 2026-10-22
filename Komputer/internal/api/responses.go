@@ -86,7 +86,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) error {
 	createdAt := time.Now().Unix()
 	model := rb.Model
 	if model == "" {
-		model = s.backend.DefaultID()
+		model = s.backends.Default.DefaultID()
 	}
 	id := "resp_" + strings.ReplaceAll(domain.NewUUID(), "-", "")
 	base := responses.ResponseObject(rb.Fields, id, createdAt, model, "in_progress", nil, nil, nil)
@@ -173,7 +173,7 @@ func (s *Server) handleResponsesTools(w http.ResponseWriter, r *http.Request, rb
 		model = turn.Model
 	}
 	if model == "" {
-		model = s.backend.DefaultID()
+		model = s.backends.Default.DefaultID()
 	}
 	createdAt := time.Now().Unix()
 	hdrs := func() map[string]string {

@@ -50,12 +50,11 @@ func effortInput(rb *requestBody) backend.EffortInput {
 }
 
 func (s *Server) resolveTarget(rb *requestBody) (backend.Backend, string, string) {
-	b := s.backend
+	b := s.backends.Route(rb.Model)
 	return b, b.ResolveModel(rb.Model), b.ResolveEffort(effortInput(rb))
 }
 
-func modelList(b backend.Backend) []map[string]any {
-	ids := b.IDs()
+func modelList(ids []string) []map[string]any {
 	out := make([]map[string]any, 0, len(ids))
 	for _, id := range ids {
 		out = append(out, map[string]any{
@@ -157,8 +156,8 @@ func truthyValue(v string) bool {
 	}
 	return false
 }
-func (s *Server) runCLI(turn backend.Turn, sink domain.Sink) (domain.Output, error) {
-	return s.runCLIContext(context.Background(), turn, sink)
+func (s *Server) runCLI(b backend.Backend, turn backend.Turn, sink domain.Sink) (domain.Output, error) {
+	return s.runCLIContext(context.Background(), b, turn, sink)
 }
 
 func (s *Server) buildSystemPrompt(messages []domain.Message, extraSystem string, includeBody bool) string {
@@ -172,8 +171,8 @@ func (s *Server) buildSystemPrompt(messages []domain.Message, extraSystem string
 	return strings.Join(parts, blankLine)
 }
 
-func (s *Server) runCLIContext(ctx context.Context, turn backend.Turn, sink domain.Sink) (domain.Output, error) {
-	out, err := s.runner.Run(ctx, s.backend, turn, sink)
+func (s *Server) runCLIContext(ctx context.Context, b backend.Backend, turn backend.Turn, sink domain.Sink) (domain.Output, error) {
+	out, err := s.runner.Run(ctx, b, turn, sink)
 	if err == nil {
 		return out, nil
 	}
@@ -192,9 +191,9 @@ func (s *Server) runCLIContext(ctx context.Context, turn backend.Turn, sink doma
 	}
 	var failure *backend.Failure
 	if errors.As(err, &failure) {
-		return domain.Output{}, ClassifyCLIError(failure.Message, s.backend, failure.Type, failure.Activity)
+		return domain.Output{}, ClassifyCLIError(failure.Message, b, failure.Type, failure.Activity)
 	}
-	return domain.Output{}, ClassifyCLIError(err.Error(), s.backend, "", false)
+	return domain.Output{}, ClassifyCLIError(err.Error(), b, "", false)
 }
 
 func (s *Server) runHarnessCLI(ctx context.Context, hctx harness.Context, hooks harness.RunHooks) (domain.Output, error) {
@@ -202,12 +201,19 @@ func (s *Server) runHarnessCLI(ctx context.Context, hctx harness.Context, hooks 
 	if hooks.Instruction != "" {
 		systemPrompt = strings.Join([]string{systemPrompt, hooks.Instruction}, blankLine)
 	}
-	return s.runCLIContext(ctx, backend.Turn{
+	b := s.backends.Get(hctx.Backend)
+	if b == nil {
+		return domain.Output{}, typedErr(503, "Backend is unavailable", "server_error")
+	}
+	mcpServer := &backend.MCPServerSpec{
+		Name: hooks.MCPServer.Name, URL: hooks.MCPServer.URL, Headers: hooks.MCPServer.Headers,
+	}
+	return s.runCLIContext(ctx, b, backend.Turn{
 		Session: backend.SessionRef{Mode: backend.SessionNone},
 		Prompt:  hctx.Prompt, Attachments: hctx.Attachments,
-		SystemPrompt: systemPrompt, Model: hctx.Model, Effort: hctx.Effort,
+		SystemPrompt: systemPrompt, IncludeSystem: true, Model: hctx.Model, Effort: hctx.Effort,
 		Tools: "", UseMCP: true, MCPConfig: hooks.MCPConfig,
-		PrivateMCP: true, WorkDir: hooks.WorkDir,
+		PrivateMCP: true, WorkDir: hooks.WorkDir, MCPServer: mcpServer,
 	}, hooks.Sink)
 }
 
@@ -403,12 +409,13 @@ func (s *Server) executeTurn(p *plan, messages []domain.Message, extraSystem str
 			kind = "task"
 		}
 		s.logf("oneshot %s model=%s msgs=%d attachments=%d", kind, orDefault(p.model, "default"), len(messages), len(attachments))
-		return s.runCLI(backend.Turn{
-			Session:      backend.SessionRef{Mode: backend.SessionNone},
-			Prompt:       domain.BuildTurnPrompt(messages, true, s.cfg.MaxHistoryChars),
-			Attachments:  attachments,
-			SystemPrompt: s.buildSystemPrompt(messages, extraSystem, !p.task),
-			Model:        p.model, Effort: p.effort, Tools: p.tools, UseMCP: p.useMCP,
+		return s.runCLI(b, backend.Turn{
+			Session:       backend.SessionRef{Mode: backend.SessionNone},
+			IncludeSystem: true,
+			Prompt:        domain.BuildTurnPrompt(messages, true, s.cfg.MaxHistoryChars),
+			Attachments:   attachments,
+			SystemPrompt:  s.buildSystemPrompt(messages, extraSystem, !p.task),
+			Model:         p.model, Effort: p.effort, Tools: p.tools, UseMCP: p.useMCP,
 		}, sink)
 	}
 
@@ -443,6 +450,10 @@ func (s *Server) executeTurn(p *plan, messages []domain.Message, extraSystem str
 	}
 	prompt := domain.BuildTurnPrompt(messages, mode != "resume", s.cfg.MaxHistoryChars)
 	systemPrompt := s.buildSystemPrompt(messages, extraSystem, true)
+	systemSha := ""
+	if b.InlinesSystem() {
+		systemSha = domain.SHA256Hex(systemPrompt, 0)
+	}
 	s.logf("turn start client_key=%s %s=%s mode=%s turn=%d model=%s effort=%s attachments=%d promptChars=%d",
 		rec.ClientKey, b.Name(), orDefault(rec.CLISessionID(), "(new)"), mode, rec.TurnCount+1,
 		orDefault(p.model, "default"), orDefault(p.effort, "default"), len(attachments), len([]rune(prompt)))
@@ -459,12 +470,13 @@ func (s *Server) executeTurn(p *plan, messages []domain.Message, extraSystem str
 		if mode == "resume" {
 			sessionMode = backend.SessionResume
 		}
-		return s.runCLI(backend.Turn{
-			Session:      backend.SessionRef{Mode: sessionMode, ID: rec.CLISessionID()},
-			Prompt:       prompt,
-			Attachments:  attachments,
-			SystemPrompt: systemPrompt,
-			Model:        p.model, Effort: p.effort, Tools: p.tools, UseMCP: p.useMCP,
+		return s.runCLI(b, backend.Turn{
+			Session:       backend.SessionRef{Mode: sessionMode, ID: rec.CLISessionID()},
+			IncludeSystem: mode != "resume" || rec.SystemSHA != systemSha,
+			Prompt:        prompt,
+			Attachments:   attachments,
+			SystemPrompt:  systemPrompt,
+			Model:         p.model, Effort: p.effort, Tools: p.tools, UseMCP: p.useMCP,
 		}, onText)
 	}
 
@@ -504,6 +516,9 @@ func (s *Server) executeTurn(p *plan, messages []domain.Message, extraSystem str
 	}
 	if b.AssignsSessionID() && out.SessionID != "" && out.SessionID != rec.CLISessionID() {
 		s.store.SetCLISessionID(rec, out.SessionID)
+	}
+	if rec.Backend != "" {
+		rec.SystemSHA = systemSha
 	}
 	rec.Started = rec.CLISessionID() != ""
 	rec.TurnCount++

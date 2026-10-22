@@ -12,20 +12,41 @@ import (
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/harness"
 )
 
+func backendHeaders(name, sessionID string) map[string]string {
+	if name == "" || name == "claude" {
+		return nil
+	}
+	h := map[string]string{"X-Komputer-Backend": name}
+	if sessionID != "" {
+		h["X-Komputer-Backend-Session"] = sessionID
+	}
+	return h
+}
+
 func conversationHeaders(p *plan) map[string]string {
 	if p.kind != "session" {
 		mode := "stateless"
 		if p.task {
 			mode = "task"
 		}
-		return map[string]string{"X-Komputer-Mode": mode}
+		h := map[string]string{"X-Komputer-Mode": mode}
+		for k, v := range backendHeaders(p.backend.Name(), "") {
+			h[k] = v
+		}
+		return h
 	}
 	h := map[string]string{
-		"X-Conversation-Id":         p.rec.ClientKey,
-		"X-Chat-Id":                 p.rec.ClientKey,
-		"X-Komputer-Session":        p.rec.ClientKey,
-		"X-Komputer-Mode":           "session",
-		"X-Komputer-Claude-Session": p.rec.ClaudeSessionID,
+		"X-Conversation-Id":  p.rec.ClientKey,
+		"X-Chat-Id":          p.rec.ClientKey,
+		"X-Komputer-Session": p.rec.ClientKey,
+		"X-Komputer-Mode":    "session",
+	}
+	if p.rec.Backend != "" {
+		for k, v := range backendHeaders(p.rec.Backend, p.rec.BackendSessionID) {
+			h[k] = v
+		}
+	} else {
+		h["X-Komputer-Claude-Session"] = p.rec.ClaudeSessionID
 	}
 	if p.recovered != "" {
 		h["X-Komputer-Session-Recovered"] = p.recovered
@@ -101,7 +122,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) e
 	}
 	model := rb.Model
 	if model == "" {
-		model = s.backend.DefaultID()
+		model = s.backends.Default.DefaultID()
 	}
 	p, err := s.planRequest(r, rb, messages, "")
 	if err != nil {
@@ -300,7 +321,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) error {
 	}
 	model := rb.Model
 	if model == "" {
-		model = s.backend.DefaultID()
+		model = s.backends.Default.DefaultID()
 	}
 	system := anthropicSystemText(rb.Fields["system"])
 	msgID := "msg_" + strings.ReplaceAll(domain.NewUUID(), "-", "")[:24]

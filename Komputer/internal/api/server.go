@@ -34,11 +34,11 @@ import (
 // backend without client-executed tools or Responses storage; unsupported
 // modes fail explicitly instead of taking the wrong execution path.
 type Server struct {
-	cfg     config.Config
-	backend backend.Backend
-	store   *session.Store
-	runner  *runner.Runner
-	logger  *log.Logger
+	cfg      config.Config
+	backends *backend.Registry
+	store    *session.Store
+	runner   *runner.Runner
+	logger   *log.Logger
 
 	keyDigests   [][]byte
 	authFailures atomic.Int64
@@ -53,16 +53,31 @@ type Server struct {
 	responses *responses.Store
 }
 
-// NewServer loads keys and sessions and prepares the backend workspace.
+// NewServer loads keys and sessions and prepares the backend workspaces.
 func NewServer(cfg config.Config) (*Server, error) {
+	var backendList []backend.Backend
+	for _, name := range cfg.Backends {
+		switch name {
+		case "claude":
+			backendList = append(backendList, backend.NewClaude(cfg.Claude))
+		case "muse":
+			backendList = append(backendList, backend.NewMuse(cfg.Muse))
+		default:
+			return nil, fmt.Errorf("backend %q is not yet implemented in the Go rewrite", name)
+		}
+	}
+	registry, err := backend.NewRegistry(backendList, cfg.DefaultBackend)
+	if err != nil {
+		return nil, err
+	}
 	s := &Server{
-		cfg:     cfg,
-		backend: backend.NewClaude(cfg.Claude),
-		logger:  log.New(os.Stdout, "", 0),
-		limiter: newAuthLimiter(cfg.AuthFailureLimit, time.Minute),
-		slots:   make(chan struct{}, cfg.MaxInFlight),
-		locks:   newKeyLocks(),
-		turns:   newTurnRegistry(cfg.TurnCache),
+		cfg:      cfg,
+		backends: registry,
+		logger:   log.New(os.Stdout, "", 0),
+		limiter:  newAuthLimiter(cfg.AuthFailureLimit, time.Minute),
+		slots:    make(chan struct{}, cfg.MaxInFlight),
+		locks:    newKeyLocks(),
+		turns:    newTurnRegistry(cfg.TurnCache),
 	}
 	s.store = session.New(cfg.SessionsFile, cfg.MaxSessions, cfg.IdleTimeout)
 	s.store.Logf = s.logf
@@ -95,8 +110,10 @@ func NewServer(cfg config.Config) (*Server, error) {
 			return nil, err
 		}
 	}
-	if err := os.MkdirAll(s.backend.Cwd(), 0o755); err != nil {
-		return nil, err
+	for _, b := range registry.List {
+		if err := os.MkdirAll(b.Cwd(), 0o755); err != nil {
+			return nil, err
+		}
 	}
 	return s, nil
 }
@@ -473,7 +490,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		}(srv, ln, addr.String())
 	}
 	s.logf("models=%s max_in_flight=%d max_sessions=%s builtin_tools=%q no_key_mode=%s",
-		strings.Join(s.backend.IDs(), ","), s.cfg.MaxInFlight, maxSessionsLabel(s.cfg.MaxSessions), s.cfg.BuiltinTools, s.cfg.NoKeyMode)
+		strings.Join(s.backends.IDs(), ","), s.cfg.MaxInFlight, maxSessionsLabel(s.cfg.MaxSessions), s.cfg.BuiltinTools, s.cfg.NoKeyMode)
 	select {
 	case <-ctx.Done():
 		s.harness.Close()

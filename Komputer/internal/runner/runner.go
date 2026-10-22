@@ -99,7 +99,16 @@ func (r *Runner) Run(ctx context.Context, b backend.Backend, turn backend.Turn, 
 	if err != nil {
 		return domain.Output{}, err
 	}
-	parser := b.NewParser(turn.Session.ID, sink)
+	var bailMu sync.Mutex
+	var bailFailure *backend.Failure
+	parser := b.NewParser(turn.Session, sink, func(f *backend.Failure) {
+		bailMu.Lock()
+		if bailFailure == nil {
+			bailFailure = f
+		}
+		bailMu.Unlock()
+		terminateProcess(cmd)
+	})
 
 	if err := cmd.Start(); err != nil {
 		return domain.Output{}, &backend.Failure{Message: err.Error(), Activity: parser.Activity()}
@@ -185,6 +194,12 @@ func (r *Runner) Run(ctx context.Context, b backend.Backend, turn backend.Turn, 
 			return domain.Output{}, cause
 		}
 		return domain.Output{}, err
+	}
+	bailMu.Lock()
+	bailed := bailFailure
+	bailMu.Unlock()
+	if bailed != nil {
+		return domain.Output{}, bailed
 	}
 	code := 0
 	if cmd.ProcessState != nil {

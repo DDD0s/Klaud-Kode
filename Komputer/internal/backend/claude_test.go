@@ -59,7 +59,7 @@ func TestClaudeResolveModelAndEffort(t *testing.T) {
 func TestClaudeParserStreamsAndFinishes(t *testing.T) {
 	c := testClaude()
 	var events []domain.Event
-	p := c.NewParser("sid", func(ev domain.Event) { events = append(events, ev) })
+	p := c.NewParser(SessionRef{Mode: SessionNew, ID: "sid"}, func(ev domain.Event) { events = append(events, ev) }, nil)
 	p.Line(`{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"think"}}}`)
 	p.Line(`{"type":"stream_event","event":{"type":"content_block_start","content_block":{"type":"tool_use","name":"run_command"}}}`)
 	p.Line(`{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"answer"}}}`)

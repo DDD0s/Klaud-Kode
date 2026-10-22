@@ -57,6 +57,17 @@ type Turn struct {
 	MCPConfig     string
 	PrivateMCP    bool
 	WorkDir       string
+	MCPServer     *MCPServerSpec
+}
+
+// MCPServerSpec is one MCP server the CLI should reach.
+type MCPServerSpec struct {
+	Name    string
+	URL     string
+	Headers map[string]string
+	Command string
+	Args    []string
+	Env     map[string]string
 }
 
 // Prepared is a rendered CLI invocation.
@@ -100,6 +111,7 @@ type Backend interface {
 	ResolveEffort(input EffortInput) string
 	ChildEnv(source map[string]string, cwd string) map[string]string
 	Prepare(turn Turn) (Prepared, error)
-	NewParser(sessionID string, sink domain.Sink) Parser
+	NewParser(session SessionRef, sink domain.Sink, bail func(*Failure)) Parser
+	Owns(id string) bool
 	Classify(message string) string
 }

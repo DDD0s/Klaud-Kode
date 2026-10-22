@@ -30,7 +30,8 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) err
 	if label == "" {
 		label = rb.String("name")
 	}
-	rec, err := s.store.Create(clientKey, label, s.backend.Name(), s.backend.NewSessionID(), false)
+	chosen := s.backends.Route(rb.Model)
+	rec, err := s.store.Create(clientKey, label, chosen.Name(), chosen.NewSessionID(), false)
 	if errors.Is(err, session.ErrTooManySessions) {
 		return typedErr(http.StatusTooManyRequests, "max live sessions reached", "rate_limit_error")
 	}
@@ -86,7 +87,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) error {
 	if !s.requireAuth(w, r) {
 		return nil
 	}
-	data := modelList(s.backend)
+	data := modelList(s.backends.IDs())
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object": "list", "data": data, "has_more": false,
 		"first_id": data[0]["id"], "last_id": data[len(data)-1]["id"],
@@ -133,7 +134,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	body := map[string]any{
 		"ok": true, "service": "komputer-api",
-		"model": s.backend.DefaultID(), "models": s.backend.IDs(), "backends": []string{s.backend.Name()},
+		"model": s.backends.Default.DefaultID(), "models": s.backends.IDs(), "backends": s.backends.Names(),
 		"sessions": s.store.Size(), "live_sessions": s.store.LiveCount(time.Now()),
 		"in_flight": len(s.slots), "queued": s.queued.Load(),
 		"max_sessions": maxSessions, "max_in_flight": s.cfg.MaxInFlight,
@@ -141,7 +142,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"builtin_tools": s.cfg.BuiltinTools, "no_key_mode": s.cfg.NoKeyMode, "listen": listen,
 		"body_probe_skipped": s.cfg.SkipTunnel,
 		"client_tools":       s.harness.Stats(),
-		"implementation":     "go-rewrite-slice-4",
+		"implementation":     "go-rewrite-slice-5",
 	}
 	if s.cfg.SkipTunnel {
 		body["body_ok"] = nil

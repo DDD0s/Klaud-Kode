@@ -45,7 +45,7 @@ func (s *Server) harnessContext(r *http.Request, rb *requestBody, messages []dom
 	meta := rb.Fields["metadata"]
 	_ = meta
 	return harness.Context{
-		Backend: s.backend.Name(), Model: model, PublicModel: orDefault(rb.Model, s.backend.DefaultID()),
+		Backend: b.Name(), Model: model, PublicModel: orDefault(rb.Model, s.backends.Default.DefaultID()),
 		Effort: effort, ClientKey: clientKey, SystemPrompt: systemPrompt,
 		ModelSpecified:  rb.Has("model"),
 		EffortSpecified: rb.Has("effort") || rb.Has("reasoning_effort") || rb.Object("output_config")["effort"] != nil,
@@ -136,7 +136,7 @@ func (s *Server) handleClientTools(w http.ResponseWriter, r *http.Request, proto
 		model = turn.Model
 	}
 	if model == "" {
-		model = s.backend.DefaultID()
+		model = s.backends.Default.DefaultID()
 	}
 	created := time.Now().Unix()
 	prefix := "chatcmpl-"

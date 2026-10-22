@@ -22,7 +22,9 @@ type fixture struct {
 	root  string
 }
 
-func newFixture(t *testing.T) fixture {
+func newFixture(t *testing.T) fixture { return newFixtureEnv(t, nil) }
+
+func newFixtureEnv(t *testing.T, extra map[string]string) fixture {
 	t.Helper()
 	root := t.TempDir()
 	state := filepath.Join(root, "fake-state")
@@ -55,10 +57,14 @@ func newFixture(t *testing.T) fixture {
 		"KOMPUTER_BACKENDS":           "claude",
 		"CLAUDE_BIN":                  fake,
 		"FAKE_CLAUDE_STATE":           state,
+		"FAKE_MUSE_STATE":             state,
 		"HOME":                        root,
 		"USERPROFILE":                 root,
 		"CUSTOM_SECRET":               "must-not-leak",
 	} {
+		env[k] = v
+	}
+	for k, v := range extra {
 		env[k] = v
 	}
 	cfg, err := config.Load(env)
@@ -119,6 +125,9 @@ type fakeCall struct {
 func (f fixture) calls(t *testing.T) []fakeCall {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(f.state, "calls.jsonl"))
+	if os.IsNotExist(err) {
+		return nil
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

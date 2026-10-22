@@ -225,8 +225,8 @@ type claudeParser struct {
 }
 
 // NewParser creates the stream-json parser for one Claude run.
-func (c *Claude) NewParser(sessionID string, sink domain.Sink) Parser {
-	return &claudeParser{sink: sink, sessionID: sessionID}
+func (c *Claude) NewParser(session SessionRef, sink domain.Sink, bail func(*Failure)) Parser {
+	return &claudeParser{sink: sink, sessionID: session.ID}
 }
 
 func (p *claudeParser) Activity() bool { return p.activity }

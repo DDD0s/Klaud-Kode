@@ -19,6 +19,7 @@ const testKey = "sk-go-rewrite-test-key-0123456789"
 type fixture struct {
 	base  string
 	state string
+	root  string
 }
 
 func newFixture(t *testing.T) fixture {
@@ -45,6 +46,7 @@ func newFixture(t *testing.T) fixture {
 		"KOMPUTER_KEYS_FILE":          keysFile,
 		"KOMPUTER_SESSION_DIR":        sessionDir,
 		"KOMPUTER_SESSIONS_FILE":      filepath.Join(root, "sessions.json"),
+		"KOMPUTER_RESPONSES_FILE":     filepath.Join(root, "responses.json"),
 		"KOMPUTER_MCP_CONFIG":         filepath.Join(sessionDir, ".mcp.json"),
 		"KOMPUTER_CLAUDE_CWD":         cwd,
 		"KOMPUTER_SKIP_TUNNEL":        "1",
@@ -69,7 +71,7 @@ func newFixture(t *testing.T) fixture {
 	}
 	ts := httptest.NewServer(server.Handler())
 	t.Cleanup(ts.Close)
-	return fixture{base: ts.URL, state: state}
+	return fixture{base: ts.URL, state: state, root: root}
 }
 
 func (f fixture) request(t *testing.T, path string, body string, headers map[string]string) (int, http.Header, []byte) {
@@ -103,10 +105,13 @@ func decode(t *testing.T, data []byte, v any) {
 }
 
 type fakeCall struct {
-	Args   []string `json:"args"`
-	Prompt string   `json:"prompt"`
-	System string   `json:"system"`
-	Env    struct {
+	Args        []string `json:"args"`
+	Prompt      string   `json:"prompt"`
+	System      string   `json:"system"`
+	Attachments []struct {
+		Type string `json:"type"`
+	} `json:"attachments"`
+	Env struct {
 		Leaked []string `json:"leaked"`
 	} `json:"env"`
 }

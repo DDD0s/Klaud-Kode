@@ -25,6 +25,7 @@ import (
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/config"
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/domain"
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/harness"
+	"github.com/DDD0s/Kloud-Kode/Komputer/internal/responses"
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/runner"
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/session"
 )
@@ -43,12 +44,13 @@ type Server struct {
 	authFailures atomic.Int64
 	limiter      *authLimiter
 
-	slots   chan struct{}
-	queued  atomic.Int64
-	locks   *keyLocks
-	turns   *turnRegistry
-	tunnel  *tunnelGuard
-	harness *harness.Gateway
+	slots     chan struct{}
+	queued    atomic.Int64
+	locks     *keyLocks
+	turns     *turnRegistry
+	tunnel    *tunnelGuard
+	harness   *harness.Gateway
+	responses *responses.Store
 }
 
 // NewServer loads keys and sessions and prepares the backend workspace.
@@ -73,10 +75,15 @@ func NewServer(cfg config.Config) (*Server, error) {
 	s.harness.Timeout = cfg.ClientToolTimeout
 	s.harness.Cache = cfg.TurnCache
 	s.harness.MaxRuns = cfg.MaxClientToolRuns
+	s.responses = responses.NewStore(cfg.ResponsesFile, cfg.MaxStoredResponses)
+	s.responses.Logf = s.logf
 	if err := s.loadKeys(); err != nil {
 		return nil, err
 	}
 	if err := s.store.Load(); err != nil {
+		return nil, err
+	}
+	if err := s.responses.Load(); err != nil {
 		return nil, err
 	}
 	if cfg.SystemPromptFile != "" {
@@ -394,11 +401,19 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) error {
 		return s.handleCountTokens(w, r)
 	case r.Method == http.MethodPost && (p == "/v1/messages" || p == "/messages"):
 		return s.handleMessages(w, r)
-	case strings.HasPrefix(p, "/v1/responses") || p == "/responses":
-		if !s.requireAuth(w, r) {
-			return nil
+	case r.Method == http.MethodPost && (p == "/v1/responses" || p == "/responses"):
+		return s.handleResponses(w, r)
+	case strings.HasPrefix(p, "/v1/responses/"):
+		id := strings.TrimPrefix(p, "/v1/responses/")
+		if !validResponseID(id) {
+			break
 		}
-		return typedErr(http.StatusNotImplemented, publicErrors["not_implemented"], "not_implemented")
+		if r.Method == http.MethodGet {
+			return s.handleGetResponse(w, r, id)
+		}
+		if r.Method == http.MethodDelete {
+			return s.handleDeleteResponse(w, r, id)
+		}
 	}
 	writeJSON(w, http.StatusNotFound, map[string]any{
 		"error": map[string]any{"message": fmt.Sprintf("not found: %s %s", r.Method, p)},

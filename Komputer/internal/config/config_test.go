@@ -13,4 +13,10 @@ func TestLoadHarnessDefaultsOnLoopback(t *testing.T) {
 	if cfg.ClientToolTimeout <= 0 {
 		t.Fatalf("ClientToolTimeout = %v", cfg.ClientToolTimeout)
 	}
+	if cfg.ResponsesFile == "" || cfg.MaxStoredResponses != 1000 {
+		t.Fatalf("Responses defaults = %q / %d", cfg.ResponsesFile, cfg.MaxStoredResponses)
+	}
+	if cfg.BodyName != "the user's computer" {
+		t.Fatalf("BodyName = %q", cfg.BodyName)
+	}
 }

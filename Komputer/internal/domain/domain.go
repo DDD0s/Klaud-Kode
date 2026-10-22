@@ -29,6 +29,7 @@ type Usage struct {
 	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
 	OutputTokens             int `json:"output_tokens"`
+	ReasoningTokens          int `json:"reasoning_tokens,omitempty"`
 }
 
 // Output is one finished backend turn.

@@ -41,16 +41,18 @@ type Claude struct {
 type Config struct {
 	SourceEnv map[string]string
 
-	BaseDir       string
-	RepoRoot      string
-	SessionDir    string
-	MCPConfig     string
-	InstanceID    string
-	WorkspaceRoot string
-	TunnelUp      string
-	HealthURL     string
-	KeysFile      string
-	SessionsFile  string
+	BaseDir            string
+	RepoRoot           string
+	SessionDir         string
+	MCPConfig          string
+	InstanceID         string
+	WorkspaceRoot      string
+	TunnelUp           string
+	HealthURL          string
+	KeysFile           string
+	SessionsFile       string
+	ResponsesFile      string
+	MaxStoredResponses int
 
 	Listen []ListenAddress
 	Port   int
@@ -275,6 +277,13 @@ func Load(source map[string]string) (Config, error) {
 	cfg.HealthURL = e.get("KOMPUTER_HEALTH_URL", "http://127.0.0.1:18787/healthz")
 	cfg.KeysFile = e.get("KOMPUTER_KEYS_FILE", filepath.Join(cfg.BaseDir, "KEYS.txt"))
 	cfg.SessionsFile = e.get("KOMPUTER_SESSIONS_FILE", filepath.Join(cfg.BaseDir, "sessions.json"))
+	cfg.ResponsesFile = e.getSet("KOMPUTER_RESPONSES_FILE", filepath.Join(cfg.BaseDir, "responses.json"))
+	if cfg.MaxStoredResponses, err = e.intValue("KOMPUTER_MAX_STORED_RESPONSES", 1000); err != nil {
+		return cfg, err
+	}
+	if cfg.MaxStoredResponses == 0 {
+		cfg.MaxStoredResponses = 1000
+	}
 
 	if cfg.CLITimeout, err = e.durationMs("KOMPUTER_CLAUDE_TIMEOUT_MS", 600*time.Second); err != nil {
 		return cfg, err

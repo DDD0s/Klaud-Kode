@@ -40,6 +40,10 @@ stay at the edge. None of them is allowed to become the internal model.
   comparison, failed-auth delay and per-address limiter.
 - Body health probe / tunnel revive, TLS listener support, exact-origin CORS.
 - Existing sessions.json files load; Claude records keep their on-disk shape.
+- `POST /v1/responses` in Body and harness modes, stored responses with
+  `previous_response_id` chains mapped onto CLI sessions, `GET`/`DELETE`
+  retrieval, text-only persisted history (attachments are never stored),
+  `store: false`, and the full streaming event sequence.
 - Harness client tools for Chat and Messages: per-run authenticated loopback
   MCP server, JSON Schema validation before a process starts, tool-choice
   and parallel-call policies, batched sealing, compute-lease release while
@@ -49,7 +53,6 @@ stay at the edge. None of them is allowed to become the internal model.
 
 Explicitly not implemented yet (requests fail with 501 where applicable):
 
-- `POST /v1/responses` and the stored-response API
 - Antigravity and Muse backends, all agy helper processes, FUSE
 - The Body itself (`kloud-kode body`): the JavaScript Body remains the
   execution layer, reached by Claude through the existing .mcp.json
@@ -61,8 +64,10 @@ Explicitly not implemented yet (requests fail with 501 where applicable):
   integration tests that run the existing `test/fake-claude.mjs` double:
   stateless chat, streamed chat, session create and `--resume`, Anthropic
   Messages, auth rejection, child-env non-leakage, plus OpenAI and Anthropic
-  harness tool cycles that continue the same fake-Claude process and an
-  explicit tool-run cancellation.
+  harness tool cycles that continue the same fake-Claude process, an
+  explicit tool-run cancellation, and Responses non-streaming/streaming,
+  previous-response session resume, function tools through the harness,
+  image-store privacy and delete.
 - `go vet ./...` passes for the host and with `GOOS=linux`.
 - Linux and Windows binaries cross-compile (about 12 MB each).
 - Fake-CLI results only. No signed-in CLI or production deployment has run
@@ -70,9 +75,8 @@ Explicitly not implemented yet (requests fail with 501 where applicable):
 
 ## Next slices
 
-1. Responses (`POST /v1/responses`, stored responses, previous-response chains).
-2. `kloud-kode body` against the existing Body MCP contract and shell tests.
-3. Antigravity and Muse backends, including their helper subcommands.
-4. Caller-environment binding and the model-visible leak gate from
+1. `kloud-kode body` against the existing Body MCP contract and shell tests.
+2. Antigravity and Muse backends, including their helper subcommands.
+3. Caller-environment binding and the model-visible leak gate from
    `docs/REMOTE-BRAIN-DESIGN.md`, then a real signed-in acceptance run.
-5. Deployment switch with the JavaScript build kept as the rollback.
+4. Deployment switch with the JavaScript build kept as the rollback.

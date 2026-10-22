@@ -63,3 +63,32 @@ jobs:
       - name: Test the Windows shells
         working-directory: Komputer/kloud-kode-body
         run: node --test test/windows-host.test.mjs
+
+  # The Go rewrite lives beside the JavaScript implementation until it
+  # passes the same behavior contracts; this job keeps it compiling and
+  # tested on Linux and cross-compiled for Windows.
+  go-rewrite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: Komputer/go.mod
+          cache: false
+      - name: Vet Go rewrite
+        working-directory: Komputer
+        run: go vet ./...
+      - name: Test Go rewrite
+        working-directory: Komputer
+        run: go test ./...
+      - name: Build Linux and Windows binaries
+        working-directory: Komputer
+        run: |
+          GOOS=linux GOARCH=amd64 go build -o /tmp/kloud-kode-linux ./cmd/kloud-kode
+          GOOS=windows GOARCH=amd64 go build -o /tmp/kloud-kode-windows.exe ./cmd/kloud-kode

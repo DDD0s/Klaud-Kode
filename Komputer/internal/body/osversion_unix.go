@@ -22,3 +22,11 @@ func osVersion() string {
 	}
 	return "unix"
 }
+
+func osRelease() string {
+	out, err := exec.Command("uname", "-r").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}

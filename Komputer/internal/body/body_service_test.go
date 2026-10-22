@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -58,28 +60,33 @@ func callText(t *testing.T, s *Service, name string, args map[string]any, out an
 
 func TestBodyFilesAndSearch(t *testing.T) {
 	service, root := newTestService(t)
-	var info map[string]any
+	var info struct {
+		DefaultRoot string `json:"defaultRoot"`
+		CwdRoot     struct {
+			Name string `json:"name"`
+			Path string `json:"path"`
+		} `json:"cwdRoot"`
+	}
 	callText(t, service, "system_info", map[string]any{}, &info)
-	if info["defaultRoot"] != "home" || info["cwdRoot"] != root {
+	if info.DefaultRoot != "home" || info.CwdRoot.Path != root {
 		t.Fatalf("system info root: %+v", info)
 	}
 	callText(t, service, "write_file", map[string]any{"path": "hello.txt", "content": "first line" + string([]byte{10}) + "second"}, nil)
 	var read struct {
 		Content string `json:"content"`
-		Total   int    `json:"totalLines"`
 	}
 	callText(t, service, "read_file", map[string]any{"path": "hello.txt"}, &read)
-	if !strings.Contains(read.Content, "second") || read.Total != 2 {
+	if !strings.Contains(read.Content, "second") {
 		t.Fatalf("read: %+v", read)
 	}
 	var window struct {
-		Content string `json:"content"`
-		Start   int    `json:"startLine"`
-		End     int    `json:"endLine"`
-		HasMore bool   `json:"hasMore"`
+		Content    string `json:"content"`
+		TotalLines int    `json:"totalLines"`
+		First      int    `json:"firstLine"`
+		Last       int    `json:"lastLine"`
 	}
-	callText(t, service, "read_file", map[string]any{"path": "hello.txt", "startLine": 2, "maxLines": 1}, &window)
-	if window.Content != "second" || window.Start != 2 || window.End != 2 || window.HasMore {
+	callText(t, service, "read_file", map[string]any{"path": "hello.txt", "offset": 2, "limit": 1}, &window)
+	if window.Content != "second" || window.TotalLines != 2 || window.First != 2 || window.Last != 2 {
 		t.Fatalf("window: %+v", window)
 	}
 	callText(t, service, "edit_file", map[string]any{"path": "hello.txt", "oldText": "second", "newText": "SECOND"}, nil)
@@ -91,6 +98,7 @@ func TestBodyFilesAndSearch(t *testing.T) {
 		Total   int `json:"total"`
 		Entries []struct {
 			Name string `json:"name"`
+			Size *int64 `json:"size"`
 		} `json:"entries"`
 	}
 	callText(t, service, "list_directory", map[string]any{"path": "."}, &list)
@@ -102,25 +110,35 @@ func TestBodyFilesAndSearch(t *testing.T) {
 			Path string `json:"path"`
 		} `json:"matches"`
 	}
-	callText(t, service, "search_files", map[string]any{"pattern": "**/*.txt"}, &found)
+	callText(t, service, "find_files", map[string]any{"pattern": "**/*.txt"}, &found)
 	if len(found.Matches) != 1 || found.Matches[0].Path != "hello.txt" {
-		t.Fatalf("search files: %+v", found)
+		t.Fatalf("find files: %+v", found)
 	}
-	callText(t, service, "search_text", map[string]any{"pattern": "SECOND"}, &found)
-	if len(found.Matches) != 1 {
-		t.Fatalf("search text: %+v", found)
+	var hits []struct {
+		File string `json:"file"`
+		Line int    `json:"line"`
+		Text string `json:"text"`
+	}
+	callText(t, service, "search_files", map[string]any{"query": "SECOND"}, &hits)
+	if len(hits) != 1 || hits[0].File != "hello.txt" || hits[0].Line != 2 {
+		t.Fatalf("search files: %+v", hits)
 	}
 	if _, err := service.roots.Resolve("../escape.txt", "home"); err == nil {
 		t.Fatal("path escape was accepted")
 	}
-	// Binary data comes back as base64 only when a byte window is asked for.
-	callText(t, service, "write_file", map[string]any{"path": "raw.bin", "contentBase64": "AAEC"}, nil)
-	var bin struct {
-		Binary  bool   `json:"binary"`
-		Content string `json:"content"`
+	callText(t, service, "create_directory", map[string]any{"path": "made/nested"}, nil)
+	callText(t, service, "move_path", map[string]any{"from": "hello.txt", "to": "made/moved.txt"}, nil)
+	callText(t, service, "delete_path", map[string]any{"path": "made", "recursive": true}, nil)
+	if _, err := os.Stat(filepath.Join(root, "made")); !os.IsNotExist(err) {
+		t.Fatalf("deleted tree still exists: %v", err)
 	}
-	callText(t, service, "read_file", map[string]any{"path": "raw.bin", "byteLength": 3}, &bin)
-	if !bin.Binary || bin.Content != "AAEC" {
+	callText(t, service, "write_file", map[string]any{"path": "raw.bin", "content": "AAEC", "encoding": "base64"}, nil)
+	var bin struct {
+		Encoding string `json:"encoding"`
+		Content  string `json:"content"`
+	}
+	callText(t, service, "read_file", map[string]any{"path": "raw.bin", "encoding": "base64", "byteLength": 3}, &bin)
+	if bin.Encoding != "base64" || bin.Content != "AAEC" {
 		t.Fatalf("binary read: %+v", bin)
 	}
 }
@@ -169,15 +187,15 @@ func TestBodyRunCommandAndProcesses(t *testing.T) {
 	if id == "" {
 		t.Fatalf("start: %+v", started)
 	}
-	callText(t, service, "write_process", map[string]any{"processId": id, "text": "hello-process"}, nil)
+	callText(t, service, "write_process", map[string]any{"processId": id, "input": "hello-process" + string([]byte{10})}, nil)
 	cursor := 0
 	seen := ""
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) && !strings.Contains(seen, "GOT:hello-process") {
 		var read ProcessRead
-		callText(t, service, "read_process", map[string]any{"processId": id, "cursor": cursor}, &read)
-		seen += read.Output
-		cursor = read.Cursor
+		callText(t, service, "read_process", map[string]any{"processId": id, "stdoutCursor": cursor}, &read)
+		seen += read.Stdout
+		cursor = read.StdoutCursor
 		if !read.Running {
 			break
 		}
@@ -190,7 +208,7 @@ func TestBodyRunCommandAndProcesses(t *testing.T) {
 	deadline = time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		var read ProcessRead
-		callText(t, service, "read_process", map[string]any{"processId": id, "cursor": cursor}, &read)
+		callText(t, service, "read_process", map[string]any{"processId": id, "stdoutCursor": cursor}, &read)
 		if !read.Running {
 			break
 		}

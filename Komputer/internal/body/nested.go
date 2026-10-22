@@ -179,52 +179,107 @@ func NewNested(cfg Config, logf func(string, ...any)) *Nested {
 	return &Nested{cfg: cfg, logf: logf, clients: map[string]*nestedClient{}}
 }
 
+// Names returns the configured enabled nested server names.
+func (n *Nested) Names() []string {
+	names := []string{}
+	for name, spec := range n.cfg.MCPServers {
+		if spec.Enabled == nil || *spec.Enabled {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+func (n *Nested) clientFor(ctx context.Context, name string) (*nestedClient, error) {
+	n.mu.Lock()
+	if client := n.clients[name]; client != nil {
+		n.mu.Unlock()
+		return client, nil
+	}
+	spec, ok := n.cfg.MCPServers[name]
+	n.mu.Unlock()
+	if !ok || (spec.Enabled != nil && !*spec.Enabled) {
+		return nil, fmt.Errorf("unknown MCP server '%s'", name)
+	}
+	if spec.Command == "" {
+		return nil, fmt.Errorf("nested mcp %s: no command configured", name)
+	}
+	client, err := startNestedClient(ctx, name, spec, n.logf)
+	if err != nil {
+		return nil, err
+	}
+	n.mu.Lock()
+	if existing := n.clients[name]; existing != nil {
+		n.mu.Unlock()
+		client.Close()
+		return existing, nil
+	}
+	n.clients[name] = client
+	n.mu.Unlock()
+	return client, nil
+}
+
 // Connect starts every enabled configured server and indexes its tools.
 // A broken nested server is logged and skipped, never fatal.
 func (n *Nested) Connect(ctx context.Context) {
-	names := make([]string, 0, len(n.cfg.MCPServers))
-	for name := range n.cfg.MCPServers {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		spec := n.cfg.MCPServers[name]
-		if spec.Enabled != nil && !*spec.Enabled {
-			continue
-		}
-		if spec.Command == "" {
-			n.logf("nested mcp %s: no command configured", name)
-			continue
-		}
-		client, err := startNestedClient(ctx, name, spec, n.logf)
-		if err != nil {
+	for _, name := range n.Names() {
+		if _, err := n.ListTools(ctx, name); err != nil {
 			n.logf("nested mcp %s: %v", name, err)
-			continue
 		}
-		defs, err := client.listTools(ctx)
-		if err != nil {
-			n.logf("nested mcp %s: %v", name, err)
-			client.Close()
-			continue
-		}
-		n.mu.Lock()
-		n.clients[name] = client
-		for _, def := range defs {
-			var head struct {
-				Name string `json:"name"`
-			}
-			_ = json.Unmarshal(def, &head)
-			if head.Name != "" {
-				n.tools = append(n.tools, NestedTool{Server: name, Name: head.Name, Definition: def})
-			}
-		}
-		count := len(defs)
-		n.mu.Unlock()
-		n.logf("nested mcp %s: %d tool(s)", name, count)
 	}
 }
 
-// Tools returns every forwarded tool definition.
+// ListTools connects lazily and returns one server's tool definitions.
+func (n *Nested) ListTools(ctx context.Context, name string) ([]NestedTool, error) {
+	client, err := n.clientFor(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	n.mu.Lock()
+	cached := []NestedTool{}
+	for _, t := range n.tools {
+		if t.Server == name {
+			cached = append(cached, t)
+		}
+	}
+	n.mu.Unlock()
+	if len(cached) > 0 {
+		return cached, nil
+	}
+	defs, err := client.listTools(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := []NestedTool{}
+	for _, def := range defs {
+		var head struct {
+			Name string `json:"name"`
+		}
+		_ = json.Unmarshal(def, &head)
+		if head.Name != "" {
+			out = append(out, NestedTool{Server: name, Name: head.Name, Definition: def})
+		}
+	}
+	n.mu.Lock()
+	// Another goroutine may have listed first.
+	seen := map[string]bool{}
+	for _, t := range n.tools {
+		if t.Server == name {
+			seen[t.Name] = true
+		}
+	}
+	for _, t := range out {
+		if !seen[t.Name] {
+			n.tools = append(n.tools, t)
+		}
+	}
+	n.mu.Unlock()
+	n.logf("nested mcp %s: %d tool(s)", name, len(out))
+	return out, nil
+}
+
+// Tools returns every forwarded tool definition discovered so far.
 func (n *Nested) Tools() []NestedTool {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -233,11 +288,9 @@ func (n *Nested) Tools() []NestedTool {
 
 // Call forwards one tool call to a nested server, returning its raw result.
 func (n *Nested) Call(ctx context.Context, server, tool string, args json.RawMessage) (json.RawMessage, error) {
-	n.mu.Lock()
-	client := n.clients[server]
-	n.mu.Unlock()
-	if client == nil {
-		return nil, fmt.Errorf("unknown MCP server: %s", server)
+	client, err := n.clientFor(ctx, server)
+	if err != nil {
+		return nil, err
 	}
 	return client.callTool(ctx, tool, args)
 }

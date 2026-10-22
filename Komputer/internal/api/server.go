@@ -24,6 +24,7 @@ import (
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/backend"
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/config"
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/domain"
+	"github.com/DDD0s/Kloud-Kode/Komputer/internal/harness"
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/runner"
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/session"
 )
@@ -42,11 +43,12 @@ type Server struct {
 	authFailures atomic.Int64
 	limiter      *authLimiter
 
-	slots  chan struct{}
-	queued atomic.Int64
-	locks  *keyLocks
-	turns  *turnRegistry
-	tunnel *tunnelGuard
+	slots   chan struct{}
+	queued  atomic.Int64
+	locks   *keyLocks
+	turns   *turnRegistry
+	tunnel  *tunnelGuard
+	harness *harness.Gateway
 }
 
 // NewServer loads keys and sessions and prepares the backend workspace.
@@ -67,6 +69,10 @@ func NewServer(cfg config.Config) (*Server, error) {
 		Logf: s.logf,
 	}
 	s.tunnel = &tunnelGuard{server: s}
+	s.harness = harness.NewGateway(s.runHarnessCLI, slotLease{server: s})
+	s.harness.Timeout = cfg.ClientToolTimeout
+	s.harness.Cache = cfg.TurnCache
+	s.harness.MaxRuns = cfg.MaxClientToolRuns
 	if err := s.loadKeys(); err != nil {
 		return nil, err
 	}
@@ -355,7 +361,17 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) error {
 		if !s.requireAuth(w, r) {
 			return nil
 		}
-		writeJSON(w, http.StatusNotFound, map[string]any{"cancelled": false}, nil)
+		id := strings.TrimPrefix(p, "/v1/tool-runs/")
+		if !isHex32(id) {
+			writeJSON(w, http.StatusNotFound, map[string]any{"cancelled": false}, nil)
+			return nil
+		}
+		cancelled := s.harness.Cancel(id)
+		status := http.StatusNotFound
+		if cancelled {
+			status = http.StatusOK
+		}
+		writeJSON(w, status, map[string]any{"cancelled": cancelled}, nil)
 		return nil
 	case r.Method == http.MethodPost && p == "/v1/sessions":
 		return s.handleCreateSession(w, r)
@@ -445,6 +461,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		strings.Join(s.backend.IDs(), ","), s.cfg.MaxInFlight, maxSessionsLabel(s.cfg.MaxSessions), s.cfg.BuiltinTools, s.cfg.NoKeyMode)
 	select {
 	case <-ctx.Done():
+		s.harness.Close()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		for _, srv := range servers {
@@ -559,4 +576,16 @@ func (b *requestBody) Messages() ([]domain.Message, error) {
 		messages = append(messages, domain.Message{Role: rawString(obj["role"]), Content: obj["content"]})
 	}
 	return messages, nil
+}
+
+func isHex32(s string) bool {
+	if len(s) != 32 {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }

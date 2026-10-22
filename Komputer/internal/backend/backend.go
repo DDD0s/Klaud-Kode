@@ -56,6 +56,7 @@ type Turn struct {
 	UseMCP        bool
 	MCPConfig     string
 	PrivateMCP    bool
+	WorkDir       string
 }
 
 // Prepared is a rendered CLI invocation.

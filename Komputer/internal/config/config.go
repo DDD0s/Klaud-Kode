@@ -76,6 +76,8 @@ type Config struct {
 	SSEOpen           time.Duration
 	AuthFailureLimit  int
 	MaxConnections    int
+	ClientToolTimeout time.Duration
+	MaxClientToolRuns int
 	RequireStrongKeys bool
 
 	BodyName   string
@@ -339,6 +341,18 @@ func Load(source map[string]string) (Config, error) {
 	if cfg.MaxConnections, err = e.intValue("KOMPUTER_MAX_CONNECTIONS", 512); err != nil {
 		return cfg, err
 	}
+	if cfg.ClientToolTimeout, err = e.durationMs("KOMPUTER_CLIENT_TOOL_TIMEOUT_MS", 300*time.Second); err != nil {
+		return cfg, err
+	}
+	if cfg.ClientToolTimeout <= 0 {
+		return cfg, fmt.Errorf("KOMPUTER_CLIENT_TOOL_TIMEOUT_MS must be positive")
+	}
+	if cfg.MaxClientToolRuns, err = e.intValue("KOMPUTER_MAX_CLIENT_TOOL_RUNS", 16); err != nil {
+		return cfg, err
+	}
+	if cfg.MaxClientToolRuns < 1 {
+		return cfg, fmt.Errorf("KOMPUTER_MAX_CLIENT_TOOL_RUNS must be a positive integer")
+	}
 	cfg.RequireStrongKeys = truthy(e["KOMPUTER_PUBLIC_API"]) || e.get("KOMPUTER_TLS_CERT_FILE", "") != ""
 	if !cfg.RequireStrongKeys {
 		for _, l := range cfg.Listen {
@@ -347,7 +361,6 @@ func Load(source map[string]string) (Config, error) {
 			}
 		}
 	}
-
 	cfg.BodyName = e.get("KOMPUTER_BODY_NAME", "the user's computer")
 	cfg.BodyMCP = e.get("KOMPUTER_BODY_MCP", "komputer_use")
 	defaultNote := fmt.Sprintf("You work on %s. Your shell, files, processes and applications are all there, and the mcp__%s__* tools are how you reach them: run_command for shell commands, the file tools for reading and writing, start_process for anything long-running. At the start of a new conversation, call system_info to learn the OS, shell, date, time zone, working roots and limits. Use those results for your commands and paths.", cfg.BodyName, cfg.BodyMCP)

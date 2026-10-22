@@ -140,8 +140,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"idle_timeout_ms": s.cfg.IdleTimeout.Milliseconds(), "auth_failures": s.authFailures.Load(),
 		"builtin_tools": s.cfg.BuiltinTools, "no_key_mode": s.cfg.NoKeyMode, "listen": listen,
 		"body_probe_skipped": s.cfg.SkipTunnel,
-		"client_tools":       map[string]any{"implemented": false},
-		"implementation":     "go-rewrite-slice-1",
+		"client_tools":       s.harness.Stats(),
+		"implementation":     "go-rewrite-slice-2",
 	}
 	if s.cfg.SkipTunnel {
 		body["body_ok"] = nil

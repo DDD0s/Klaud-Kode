@@ -67,6 +67,9 @@ func (r *Runner) Run(ctx context.Context, b backend.Backend, turn backend.Turn, 
 	}
 
 	if err := ctx.Err(); err != nil {
+		if cause := context.Cause(ctx); cause != nil {
+			return domain.Output{}, cause
+		}
 		return domain.Output{}, err
 	}
 	bin := b.Bin()
@@ -178,6 +181,9 @@ func (r *Runner) Run(ctx context.Context, b backend.Backend, turn backend.Turn, 
 		}
 	}
 	if err := ctx.Err(); err != nil {
+		if cause := context.Cause(ctx); cause != nil {
+			return domain.Output{}, cause
+		}
 		return domain.Output{}, err
 	}
 	code := 0

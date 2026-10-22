@@ -25,12 +25,12 @@ Internal layering is protocol-neutral at the center:
 Public wire protocols (OpenAI Chat, Anthropic Messages, OpenAI Responses)
 stay at the edge. None of them is allowed to become the internal model.
 
-## Implemented in slice 1
+## Implemented so far
 
 - Claude backend only: exact argv shape, stream-json parser, child
   environment allowlist, appended system prompt file, attachments via
   `--input-format stream-json`.
-- `POST /v1/chat/completions` and `POST /v1/messages` without client tools:
+- `POST /v1/chat/completions` and `POST /v1/messages`:
   streaming (deferred SSE) and non-streaming, stateless, task and session
   turns, divergence reseeding, missing-session recovery, duplicate-turn
   attach/replay, global in-flight cap and per-session serialization.
@@ -40,10 +40,15 @@ stay at the edge. None of them is allowed to become the internal model.
   comparison, failed-auth delay and per-address limiter.
 - Body health probe / tunnel revive, TLS listener support, exact-origin CORS.
 - Existing sessions.json files load; Claude records keep their on-disk shape.
+- Harness client tools for Chat and Messages: per-run authenticated loopback
+  MCP server, JSON Schema validation before a process starts, tool-choice
+  and parallel-call policies, batched sealing, compute-lease release while
+  waiting, exact-batch result validation, identical-retry replay,
+  continuation conflict checks, output limits, explicit run cancellation
+  (`DELETE /v1/tool-runs/:id`) and health stats.
 
 Explicitly not implemented yet (requests fail with 501 where applicable):
 
-- Client-executed (harness) tools and `DELETE /v1/tool-runs/:id` cancellation
 - `POST /v1/responses` and the stored-response API
 - Antigravity and Muse backends, all agy helper processes, FUSE
 - The Body itself (`kloud-kode body`): the JavaScript Body remains the
@@ -55,7 +60,9 @@ Explicitly not implemented yet (requests fail with 501 where applicable):
 - `go test ./...` passes on Windows (Go 1.27.3), including HTTP
   integration tests that run the existing `test/fake-claude.mjs` double:
   stateless chat, streamed chat, session create and `--resume`, Anthropic
-  Messages, auth rejection, child-env non-leakage.
+  Messages, auth rejection, child-env non-leakage, plus OpenAI and Anthropic
+  harness tool cycles that continue the same fake-Claude process and an
+  explicit tool-run cancellation.
 - `go vet ./...` passes for the host and with `GOOS=linux`.
 - Linux and Windows binaries cross-compile (about 12 MB each).
 - Fake-CLI results only. No signed-in CLI or production deployment has run
@@ -63,7 +70,7 @@ Explicitly not implemented yet (requests fail with 501 where applicable):
 
 ## Next slices
 
-1. Harness client tools (the persistent tool-wait gateway) and Responses.
+1. Responses (`POST /v1/responses`, stored responses, previous-response chains).
 2. `kloud-kode body` against the existing Body MCP contract and shell tests.
 3. Antigravity and Muse backends, including their helper subcommands.
 4. Caller-environment binding and the model-visible leak gate from

@@ -13,6 +13,7 @@ import (
 
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/backend"
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/domain"
+	"github.com/DDD0s/Kloud-Kode/Komputer/internal/harness"
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/session"
 )
 
@@ -156,6 +157,9 @@ func truthyValue(v string) bool {
 	}
 	return false
 }
+func (s *Server) runCLI(turn backend.Turn, sink domain.Sink) (domain.Output, error) {
+	return s.runCLIContext(context.Background(), turn, sink)
+}
 
 func (s *Server) buildSystemPrompt(messages []domain.Message, extraSystem string, includeBody bool) string {
 	parts := []string{}
@@ -168,14 +172,23 @@ func (s *Server) buildSystemPrompt(messages []domain.Message, extraSystem string
 	return strings.Join(parts, blankLine)
 }
 
-func (s *Server) runCLI(turn backend.Turn, sink domain.Sink) (domain.Output, error) {
-	out, err := s.runner.Run(context.Background(), s.backend, turn, sink)
+func (s *Server) runCLIContext(ctx context.Context, turn backend.Turn, sink domain.Sink) (domain.Output, error) {
+	out, err := s.runner.Run(ctx, s.backend, turn, sink)
 	if err == nil {
 		return out, nil
 	}
 	var apiErr *domain.APIError
 	if errors.As(err, &apiErr) {
 		return domain.Output{}, apiErr
+	}
+	if ctx.Err() != nil {
+		if cause := context.Cause(ctx); cause != nil {
+			if errors.As(cause, &apiErr) {
+				return domain.Output{}, apiErr
+			}
+			return domain.Output{}, cause
+		}
+		return domain.Output{}, ctx.Err()
 	}
 	var failure *backend.Failure
 	if errors.As(err, &failure) {
@@ -184,10 +197,41 @@ func (s *Server) runCLI(turn backend.Turn, sink domain.Sink) (domain.Output, err
 	return domain.Output{}, ClassifyCLIError(err.Error(), s.backend, "", false)
 }
 
-func (s *Server) acquireSlot() {
+func (s *Server) runHarnessCLI(ctx context.Context, hctx harness.Context, hooks harness.RunHooks) (domain.Output, error) {
+	systemPrompt := hctx.SystemPrompt
+	if hooks.Instruction != "" {
+		systemPrompt = strings.Join([]string{systemPrompt, hooks.Instruction}, blankLine)
+	}
+	return s.runCLIContext(ctx, backend.Turn{
+		Session: backend.SessionRef{Mode: backend.SessionNone},
+		Prompt:  hctx.Prompt, Attachments: hctx.Attachments,
+		SystemPrompt: systemPrompt, Model: hctx.Model, Effort: hctx.Effort,
+		Tools: "", UseMCP: true, MCPConfig: hooks.MCPConfig,
+		PrivateMCP: true, WorkDir: hooks.WorkDir,
+	}, hooks.Sink)
+}
+
+type slotLease struct{ server *Server }
+
+func (l slotLease) Acquire(ctx context.Context) error { return l.server.acquireSlotContext(ctx) }
+func (l slotLease) Release()                          { l.server.releaseSlot() }
+
+func (s *Server) acquireSlotContext(ctx context.Context) error {
 	s.queued.Add(1)
-	s.slots <- struct{}{}
-	s.queued.Add(-1)
+	defer s.queued.Add(-1)
+	select {
+	case s.slots <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		if cause := context.Cause(ctx); cause != nil {
+			return cause
+		}
+		return ctx.Err()
+	}
+}
+
+func (s *Server) acquireSlot() {
+	_ = s.acquireSlotContext(context.Background())
 }
 
 func (s *Server) releaseSlot() {

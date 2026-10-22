@@ -165,10 +165,14 @@ func (c *Claude) Prepare(turn Turn) (Prepared, error) {
 			"session_id":         "",
 		})) + string(rune(10))
 	}
+	cwd := turn.WorkDir
+	if cwd == "" {
+		cwd = c.cfg.Cwd
+	}
 	return Prepared{
 		Args:    c.Args(turn, sysFile, streamInput),
 		Stdin:   stdin,
-		Cwd:     c.cfg.Cwd,
+		Cwd:     cwd,
 		Cleanup: func() { _ = os.Remove(sysFile) },
 	}, nil
 }

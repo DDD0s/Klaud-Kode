@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/domain"
+	"github.com/DDD0s/Kloud-Kode/Komputer/internal/harness"
 )
 
 func conversationHeaders(p *plan) map[string]string {
@@ -68,44 +69,6 @@ func validateRoles(messages []domain.Message, allowed map[string]bool) error {
 	return nil
 }
 
-// clientToolsRequested finds request shapes that belong to the harness
-// client-tool gateway, which this Go slice does not implement yet.
-func clientToolsRequested(rb *requestBody, protocol string, messages []domain.Message) (bool, error) {
-	if rb.Has("functions") || rb.Has("function_call") {
-		return false, httpErr(http.StatusBadRequest, "Use tools and tool_choice instead of legacy function fields")
-	}
-	toolsPresent := false
-	if raw, ok := rb.Fields["tools"]; ok {
-		var tools []json.RawMessage
-		if err := json.Unmarshal(raw, &tools); err != nil {
-			return false, httpErr(http.StatusBadRequest, "tools must be an array")
-		}
-		toolsPresent = len(tools) > 0
-	}
-	results := false
-	if len(messages) > 0 {
-		last := messages[len(messages)-1]
-		if protocol == "openai" && strings.EqualFold(last.Role, "tool") {
-			results = true
-		}
-		if protocol == "anthropic" && strings.EqualFold(last.Role, "user") {
-			var blocks []map[string]json.RawMessage
-			if err := json.Unmarshal(last.Content, &blocks); err == nil {
-				for _, b := range blocks {
-					if rawString(b["type"]) == "tool_result" {
-						results = true
-					}
-				}
-			}
-		}
-	}
-	return toolsPresent || rb.Has("tool_choice") || results, nil
-}
-
-func unsupportedClientTools() error {
-	return typedErr(http.StatusNotImplemented, publicErrors["not_implemented"], "not_implemented")
-}
-
 func mustJSON(v any) string {
 	data, _ := json.Marshal(v)
 	return string(data)
@@ -129,12 +92,12 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) e
 	if err := validateRoles(messages, map[string]bool{"system": true, "developer": true, "user": true, "assistant": true, "tool": true}); err != nil {
 		return err
 	}
-	toolMode, err := clientToolsRequested(rb, "openai", messages)
+	spec, err := harness.ParseRequest("openai", rb.Fields)
 	if err != nil {
 		return err
 	}
-	if toolMode {
-		return unsupportedClientTools()
+	if spec != nil {
+		return s.handleClientTools(w, r, "openai", rb, messages, spec)
 	}
 	model := rb.Model
 	if model == "" {
@@ -328,12 +291,12 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) error {
 	if err := validateRoles(messages, map[string]bool{"user": true, "assistant": true}); err != nil {
 		return err
 	}
-	toolMode, err := clientToolsRequested(rb, "anthropic", messages)
+	spec, err := harness.ParseRequest("anthropic", rb.Fields)
 	if err != nil {
 		return err
 	}
-	if toolMode {
-		return unsupportedClientTools()
+	if spec != nil {
+		return s.handleClientTools(w, r, "anthropic", rb, messages, spec)
 	}
 	model := rb.Model
 	if model == "" {

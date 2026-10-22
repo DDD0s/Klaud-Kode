@@ -9,7 +9,7 @@ same contracts slice by slice. Do not switch deployment defaults yet.
 One Go binary with subcommands:
 
 - `kloud-kode api` — the brain-host API service
-- `kloud-kode body` — the caller-computer execution layer (not yet)
+- `kloud-kode body` — the caller-computer execution layer
 - `kloud-kode bridge|hook|shim` — small CLI helper entrypoints (not yet)
 
 Internal layering is protocol-neutral at the center:
@@ -40,6 +40,10 @@ stay at the edge. None of them is allowed to become the internal model.
   comparison, failed-auth delay and per-address limiter.
 - Body health probe / tunnel revive, TLS listener support, exact-origin CORS.
 - Existing sessions.json files load; Claude records keep their on-disk shape.
+- The Body itself: the same config file, HTTP and stdio MCP transports,
+  token auth, health endpoint, roots, files, sync commands, long-lived
+  interactive processes, platform shell detection and Windows PowerShell /
+  cmd UTF-8 handling, nested stdio MCP forwarding through `call_mcp_tool`.
 - `POST /v1/responses` in Body and harness modes, stored responses with
   `previous_response_id` chains mapped onto CLI sessions, `GET`/`DELETE`
   retrieval, text-only persisted history (attachments are never stored),
@@ -54,8 +58,6 @@ stay at the edge. None of them is allowed to become the internal model.
 Explicitly not implemented yet (requests fail with 501 where applicable):
 
 - Antigravity and Muse backends, all agy helper processes, FUSE
-- The Body itself (`kloud-kode body`): the JavaScript Body remains the
-  execution layer, reached by Claude through the existing .mcp.json
 - Key reload on SIGHUP and the connection cap
 
 ## Validation so far
@@ -75,8 +77,7 @@ Explicitly not implemented yet (requests fail with 501 where applicable):
 
 ## Next slices
 
-1. `kloud-kode body` against the existing Body MCP contract and shell tests.
-2. Antigravity and Muse backends, including their helper subcommands.
-3. Caller-environment binding and the model-visible leak gate from
+1. Antigravity and Muse backends, including their helper subcommands.
+2. Caller-environment binding and the model-visible leak gate from
    `docs/REMOTE-BRAIN-DESIGN.md`, then a real signed-in acceptance run.
-4. Deployment switch with the JavaScript build kept as the rollback.
+3. Deployment switch with the JavaScript build kept as the rollback.

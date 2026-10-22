@@ -68,8 +68,12 @@ jobs:
   # passes the same behavior contracts; this job keeps it compiling and
   # tested on Linux and cross-compiled for Windows.
   go-rewrite:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -84,11 +88,17 @@ jobs:
       - name: Vet Go rewrite
         working-directory: Komputer
         run: go vet ./...
-      - name: Test Go rewrite
+      - name: Test Go rewrite (race)
+        if: runner.os == 'Linux'
         working-directory: Komputer
         run: go test -race ./...
+      - name: Test Go rewrite (Windows)
+        if: runner.os == 'Windows'
+        working-directory: Komputer
+        run: go test ./...
       - name: Build Linux and Windows binaries
         working-directory: Komputer
+        shell: bash
         run: |
           GOOS=linux GOARCH=amd64 go build -o /tmp/kloud-kode-linux ./cmd/kloud-kode
           GOOS=windows GOARCH=amd64 go build -o /tmp/kloud-kode-windows.exe ./cmd/kloud-kode

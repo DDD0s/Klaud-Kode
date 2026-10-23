@@ -5,13 +5,87 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"regexp"
+	"os/signal"
+	"path"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 )
 
-// Rewrite pieces between where agy runs and the caller's machine.
+// AGYCommandOf returns the command of "bash [options] -c <command> [name
+// [args...]]", or "" for any other invocation (which runs the real bash).
+func AGYCommandOf(argv []string) string {
+	for i := 0; i < len(argv); i++ {
+		a := argv[i]
+		if a == "--" {
+			return ""
+		}
+		if len(a) > 1 && a[0] == '-' && strings.Contains(a, "c") && !strings.HasPrefix(a, "--") {
+			opts := strings.TrimLeft(a, "-+")
+			if opts != "" && allASCIICLetters(opts) {
+				if i+1 < len(argv) {
+					return argv[i+1]
+				}
+				return ""
+			}
+		}
+		if strings.HasPrefix(a, "--") {
+			if a == "--rcfile" || a == "--init-file" {
+				i++
+			}
+			continue
+		}
+		if len(a) > 1 && (a[0] == '-' || a[0] == '+') {
+			if a == "-o" || a == "+o" || a == "-O" || a == "+O" {
+				i++
+			}
+			continue
+		}
+		return ""
+	}
+	return ""
+}
 
+func allASCIICLetters(s string) bool {
+	for _, r := range s {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') {
+			return false
+		}
+	}
+	return true
+}
+
+func agyPosixRoot(root string) bool { return strings.HasPrefix(root, "/") }
+
+// AGYToRemote rewrites mount paths in a command into the user's paths. Only
+// POSIX roots are translated; a Windows root already is the user's own path.
+func AGYToRemote(text string, remote *AGYRemote) string {
+	if remote == nil || remote.Mount == "" || !agyPosixRoot(remote.Root) || remote.Mount == remote.Root {
+		return text
+	}
+	return strings.ReplaceAll(text, remote.Mount, remote.Root)
+}
+
+// AGYRemoteCwd returns the Body-side cwd, relative to its root, for a
+// local working directory inside the mount.
+func AGYRemoteCwd(local string, remote *AGYRemote) string {
+	if remote == nil || remote.Mount == "" {
+		return "."
+	}
+	mount := path.Clean(remote.Mount)
+	cleaned := path.Clean(local)
+	if !strings.HasPrefix(cleaned, strings.TrimSuffix(mount, "/")+"/") {
+		if cleaned == mount {
+			return "."
+		}
+		return "."
+	}
+	return strings.TrimPrefix(cleaned, strings.TrimSuffix(mount, "/")+"/")
+}
+
+// StreamRewriter maps a byte stream between the Body's paths and the mount,
+// carrying a partial match across chunk boundaries.
 type streamRewriter struct {
 	from, to string
 	carry    string
@@ -22,148 +96,96 @@ func StreamRewriter(from, to string) *streamRewriter {
 	return &streamRewriter{from: from, to: to}
 }
 
+// Push rewrites one chunk.
 func (r *streamRewriter) Push(s string) string {
-	if r.from == "" {
+	if r.from == "" || r.from == r.to {
 		return s
 	}
 	text := r.carry + s
-	keep := 0
-	maxKeep := min(len(text), len(r.from))
-	for k := maxKeep; k > 0; k-- {
+	cut := len(text)
+	for k := min(len(r.from)-1, len(text)); k > 0; k-- {
 		if strings.HasPrefix(r.from, text[len(text)-k:]) {
-			keep = k
+			cut = len(text) - k
 			break
 		}
 	}
-	r.carry = text[len(text)-keep:]
-	return strings.ReplaceAll(text[:len(text)-keep], r.from, r.to)
+	r.carry = text[cut:]
+	return strings.ReplaceAll(text[:cut], r.from, r.to)
 }
 
 // Flush releases any carried bytes.
 func (r *streamRewriter) Flush() string {
-	if r.from == "" {
-		return ""
-	}
-	out := strings.ReplaceAll(r.carry, r.from, r.to)
+	rest := r.carry
 	r.carry = ""
-	return out
+	if r.from == "" || r.from == r.to {
+		return rest
+	}
+	return strings.ReplaceAll(rest, r.from, r.to)
 }
 
-// AGYToRemote maps a bash token between the brain mount and caller roots.
-func AGYToRemote(token, mount, root string) string {
-	if token == mount {
-		return root
+// agyOutputMapper returns a no-op mapper when no translation applies.
+func agyOutputMapper(remote *AGYRemote) *streamRewriter {
+	if remote == nil || remote.Mount == "" || !agyPosixRoot(remote.Root) || remote.Mount == remote.Root {
+		return StreamRewriter("", "")
 	}
-	if strings.HasPrefix(token, mount+"/") {
-		if strings.HasSuffix(root, "/") {
-			return root + token[len(mount)+1:]
-		}
-		return root + token[len(mount):]
-	}
-	if token == root {
-		return token
-	}
-	if root != "" && strings.HasPrefix(token, root) && !strings.HasPrefix(root, "/") {
-		return token // A Windows root is already the real machine's path.
-	}
-	return token
+	return StreamRewriter(remote.Root, remote.Mount)
 }
 
-// AGYRemoteCwd maps a brain cwd to a Body-relative cwd.
-func AGYRemoteCwd(cwd, mount string) string {
-	if cwd == mount {
-		return "."
+var agySignals = map[os.Signal]int{syscall.SIGHUP: 1, syscall.SIGINT: 2, syscall.SIGQUIT: 3, syscall.SIGKILL: 9, syscall.SIGTERM: 15}
+
+const shimInitialDelayMs = 100
+
+func agySignalCode(sig os.Signal) int {
+	if code, ok := agySignals[sig]; ok {
+		return 128 + code
 	}
-	if strings.HasPrefix(cwd, mount+"/") {
-		return cwd[len(mount)+1:]
-	}
-	return cwd
+	return 128 + 15
 }
 
-var leadingEnvRun = regexp.MustCompile(`^(?:[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"[^"]*"|[^\s]+)\s+)+`)
-
-// AGYLastCommand returns what a `bash -c` line will actually run: `a && b`
-// makes b the command whose exit status the caller sees.
-func AGYLastCommand(line string) string {
-	parts := splitCommandLine(line)
-	if len(parts) == 0 {
-		return ""
+// AGYPassThrough runs the real bash with the same stdin/stdout.
+func AGYPassThrough(argv []string, getenv func(string) string) int {
+	realBash := ""
+	if getenv != nil {
+		realBash = getenv("KOMPUTER_AGY_REAL_BASH")
 	}
-	return leadingEnvRun.ReplaceAllString(strings.TrimSpace(parts[len(parts)-1]), "")
-}
-
-// AGYIsBashism reports constructs that make a command unsafe to reword.
-func AGYIsBashism(command string) bool {
-	for _, marker := range []string{"$("} {
-		if strings.Contains(command, marker) {
-			return true
-		}
+	if realBash == "" {
+		realBash = "/bin/bash"
 	}
-	backtick := string([]byte{96})
-	if strings.Contains(command, backtick) {
-		return true
-	}
-	for _, marker := range []string{"$?", "$@", "[[", "<<<", "pushd", "popd", "cd ", "source ", "export "} {
-		if strings.Contains(command, marker) {
-			return true
-		}
-	}
-	// A pipeline is only bash-shaped when its last stage runs locally by
-	// name; a single command with no shell grammar travels as-is.
-	return strings.Contains(command, "|") || strings.Contains(command, ">>") || strings.Contains(command, "2>")
-}
-
-func splitCommandLine(line string) []string {
-	parts := []string{}
-	var current strings.Builder
-	var quote byte
-	escaped := false
-	for i := 0; i < len(line); i++ {
-		c := line[i]
-		if escaped {
-			current.WriteByte(c)
-			escaped = false
-			continue
-		}
-		if c == 92 && quote == 0 {
-			escaped = true
-			current.WriteByte(c)
-			continue
-		}
-		if quote != 0 {
-			if c == quote {
-				quote = 0
+	cmd := exec.Command(realBash, argv...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = os.Environ()
+	if err := cmd.Run(); err != nil {
+		if exit, ok := err.(*exec.ExitError); ok {
+			if status, ok := exit.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+				return agySignalCode(status.Signal())
 			}
-			current.WriteByte(c)
-			continue
+			return exit.ExitCode()
 		}
-		switch c {
-		case 39, '"':
-			quote = c
-			current.WriteByte(c)
-		case ';':
-			parts = append(parts, current.String())
-			current.Reset()
-		case '&', '|':
-			if i+1 < len(line) && line[i+1] == c {
-				parts = append(parts, current.String())
-				current.Reset()
-				i++
-			} else {
-				current.WriteByte(c)
-			}
-		default:
-			current.WriteByte(c)
-		}
+		_, _ = io.WriteString(os.Stderr, "bash: "+err.Error()+string([]byte{10}))
+		return 127
 	}
-	parts = append(parts, current.String())
-	return parts
+	return 0
 }
 
-const shimFirstPollMs = 300
+func agyExitCodeOf(read map[string]any) int {
+	if code, ok := read["exitCode"].(float64); ok {
+		return int(code)
+	}
+	if signal, ok := read["signal"].(string); ok {
+		names := map[string]int{"SIGHUP": 1, "SIGINT": 2, "SIGQUIT": 3, "SIGKILL": 9, "SIGTERM": 15}
+		if code, ok := names[signal]; ok {
+			return 128 + code
+		}
+		return 129
+	}
+	return 1
+}
 
-// RunAGYShim executes the shim subcommand and returns its exit code.
-func RunAGYShim(ctx context.Context, args []string, stdout, stderr io.Writer, getenv func(string) string, cwd string) int {
+// RunAGYShim executes the shim subcommand and returns its exit code. It is
+// the "bash" agy sees while its commands belong on the caller's computer.
+func RunAGYShim(ctx context.Context, argv []string, stdout, stderr io.Writer, getenv func(string) string, cwd string) int {
 	file := ""
 	if getenv != nil {
 		file = getenv("KOMPUTER_AGY_MCP_FILE")
@@ -173,35 +195,11 @@ func RunAGYShim(ctx context.Context, args []string, stdout, stderr io.Writer, ge
 	if target != nil {
 		remote = target.Remote
 	}
-	if remote == nil || remote.Server == nil || remote.Server.URL == "" {
-		bash := ""
-		if getenv != nil {
-			bash = getenv("KOMPUTER_AGY_REAL_BASH")
-		}
-		if bash == "" {
-			found, err := exec.LookPath("bash")
-			if err != nil {
-				_, _ = io.WriteString(stderr, "komputer bash shim: bash not found"+string([]byte{10}))
-				return 127
-			}
-			bash = found
-		}
-		cmd := exec.CommandContext(ctx, bash, args...)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = stdout
-		cmd.Stderr = stderr
-		cmd.Env = os.Environ()
-		if err := cmd.Run(); err != nil {
-			if exit, ok := err.(*exec.ExitError); ok {
-				return exit.ExitCode()
-			}
-			_, _ = io.WriteString(stderr, err.Error()+string([]byte{10}))
-			return 1
-		}
-		return 0
+	command := AGYCommandOf(argv)
+	if remote == nil || remote.Server == nil || remote.Server.URL == "" || command == "" {
+		return AGYPassThrough(argv, getenv)
 	}
-	server := remote.Server
-	client := NewMCPHTTPClient(*server)
+	client := NewMCPHTTPClient(*remote.Server)
 	if remote.Root == "" {
 		if info, err := client.CallTool(ctx, "system_info", map[string]any{}); err == nil {
 			if m, ok := info.(map[string]any); ok {
@@ -211,109 +209,127 @@ func RunAGYShim(ctx context.Context, args []string, stdout, stderr io.Writer, ge
 			}
 		}
 	}
-	command := ""
-	if len(args) > 0 {
-		command = args[len(args)-1]
+	shell := remote.Shell
+	if shell == "" {
+		shell = "bash"
 	}
-	toRemote := func(text string) string {
-		if remote.Mount == "" {
-			return text
-		}
-		fields := strings.FieldsFunc(text, func(r rune) bool {
-			return r == ' ' || r == 9 || r == 10 || r == 39 || r == '"' || r == '=' || r == ':' || r == ','
-		})
-		for _, token := range fields {
-			mapped := AGYToRemote(token, remote.Mount, remote.Root)
-			if mapped != token {
-				text = strings.ReplaceAll(text, token, mapped)
-			}
-		}
-		return text
-	}
-	rewriter := StreamRewriter(remote.Root, remote.Mount)
-	emit := func(text string) {
-		if text != "" {
-			_, _ = io.WriteString(stdout, rewriter.Push(text))
-		}
-	}
+	text := AGYToRemote(command, remote)
+	out := agyOutputMapper(remote)
+	errMap := agyOutputMapper(remote)
+	emitOut := func(s string) { _, _ = io.WriteString(stdout, out.Push(s)) }
+	emitErr := func(s string) { _, _ = io.WriteString(stderr, errMap.Push(s)) }
 	finish := func() {
-		if tail := rewriter.Flush(); tail != "" {
+		if tail := out.Flush(); tail != "" {
 			_, _ = io.WriteString(stdout, tail)
 		}
+		if tail := errMap.Flush(); tail != "" {
+			_, _ = io.WriteString(stderr, tail)
+		}
 	}
-	call := func(name string, arguments any) (map[string]any, error) {
-		result, err := client.CallTool(ctx, name, arguments)
+	call := func(name string, args map[string]any) (map[string]any, error) {
+		result, err := client.CallTool(ctx, name, args)
 		if err != nil {
 			return nil, err
 		}
 		m, _ := result.(map[string]any)
 		return m, nil
 	}
-	failed := func(err error) int {
-		_, _ = io.WriteString(stderr, "komputer: command failed to start on your computer: "+err.Error()+string([]byte{10}))
-		finish()
-		return 125
-	}
-	started, err := call("start_process", map[string]any{
-		"command": toRemote(command), "cwd": AGYRemoteCwd(cwd, remote.Mount),
-		"shell": remoteShell(remote), "idleTimeoutMs": 600000,
-	})
-	if err != nil || started == nil || started["processId"] == nil {
-		if err == nil {
-			err = &Failure{Message: "start_process returned no process id"}
+	startArgs := map[string]any{"command": text, "shell": shell, "cwd": AGYRemoteCwd(cwd, remote)}
+	started, startErr := call("start_process", startArgs)
+	if startErr != nil && agyUnknownTool(startErr) {
+		// A Body without process support still runs the command, just not
+		// streamed: same output, same exit status.
+		result, err := call("run_command", map[string]any{"command": text, "shell": shell, "cwd": AGYRemoteCwd(cwd, remote)})
+		if err != nil {
+			_, _ = io.WriteString(stderr, "bash: could not run the command on the user's computer: "+err.Error()+string([]byte{10}))
+			return 126
 		}
-		return failed(err)
+		emitOut(toStringValue(result["stdout"]))
+		emitErr(toStringValue(result["stderr"]))
+		finish()
+		if timedOut, _ := result["timedOut"].(bool); timedOut {
+			_, _ = io.WriteString(stderr, string([]byte{10})+"[timed out on the user's computer]"+string([]byte{10}))
+		}
+		return agyExitCodeOf(result)
 	}
 	id, _ := started["processId"].(string)
-	outCursor, errCursor := 0, 0
-	deadline := time.Now().Add(610 * time.Second)
+	stopOnce := sync.Once{}
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	defer signal.Stop(sigCh)
+	go func() {
+		select {
+		case sig := <-sigCh:
+			stopOnce.Do(func() {
+				_, _ = call("stop_process", map[string]any{"processId": id})
+				finish()
+				os.Exit(agySignalCode(sig))
+			})
+		case <-ctx.Done():
+		}
+	}()
+	// agy's command may read stdin (pipes, here-documents, read).
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := os.Stdin.Read(buf)
+			if n > 0 {
+				_, _ = call("write_process", map[string]any{"processId": id, "input": string(buf[:n])})
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	cursors := map[string]any{"stdoutCursor": 0, "stderrCursor": 0}
+	delay := shimInitialDelayMs
 	for {
-		read, err := call("read_process", map[string]any{"processId": id, "stdoutCursor": outCursor, "stderrCursor": errCursor})
+		read, err := call("read_process", map[string]any{"processId": id, "stdoutCursor": cursors["stdoutCursor"], "stderrCursor": cursors["stderrCursor"]})
 		if err != nil {
-			return failed(err)
+			_, _ = io.WriteString(stderr, "bash: could not read the command's output on the user's computer: "+err.Error()+string([]byte{10}))
+			return 126
 		}
-		if s, ok := read["stdout"].(string); ok {
-			emit(s)
+		stdoutText := toStringValue(read["stdout"])
+		stderrText := toStringValue(read["stderr"])
+		if stdoutText != "" {
+			emitOut(stdoutText)
 		}
-		if s, ok := read["stderr"].(string); ok {
-			emit(s)
+		if stderrText != "" {
+			emitErr(stderrText)
 		}
-		if n, ok := read["stdoutCursor"].(float64); ok {
-			outCursor = int(n)
-		}
-		if n, ok := read["stderrCursor"].(float64); ok {
-			errCursor = int(n)
-		}
-		running, _ := read["running"].(bool)
-		if !running {
+		cursors["stdoutCursor"] = read["stdoutCursor"]
+		cursors["stderrCursor"] = read["stderrCursor"]
+		if running, _ := read["running"].(bool); !running {
 			finish()
-			if read["idleStopped"] == true {
+			if idle, _ := read["idleStopped"].(bool); idle {
 				_, _ = io.WriteString(stderr, "komputer: the command was stopped after 10 minutes without being read; its later output is lost."+string([]byte{10}))
 			}
-			if code, ok := read["exitCode"].(float64); ok {
-				return int(code)
-			}
-			return 1
+			return agyExitCodeOf(read)
 		}
-		if time.Now().After(deadline) {
-			_, _ = call("stop_process", map[string]any{"processId": id})
-			_, _ = io.WriteString(stderr, "komputer: command timed out after 10 minutes."+string([]byte{10}))
-			finish()
-			return 124
+		next := delay * 3 / 2
+		if next > 500 {
+			next = 500
 		}
+		delay = next
 		select {
 		case <-ctx.Done():
 			_, _ = call("stop_process", map[string]any{"processId": id})
 			finish()
 			return 130
-		case <-time.After(shimFirstPollMs * time.Millisecond):
+		case <-time.After(time.Duration(delay) * time.Millisecond):
 		}
 	}
 }
 
-func remoteShell(remote *AGYRemote) string {
-	if remote != nil && remote.Shell != "" {
-		return remote.Shell
+func agyUnknownTool(err error) bool {
+	if err == nil {
+		return false
 	}
-	return "bash"
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unknown tool") || strings.Contains(msg, "not found") || strings.Contains(msg, "tool not found")
+}
+
+func toStringValue(v any) string {
+	s, _ := v.(string)
+	return s
 }

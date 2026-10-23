@@ -103,15 +103,43 @@ func TestAGYHookRemoteRewriteAndIslandDeny(t *testing.T) {
 func toString(v any) string { s, _ := v.(string); return s }
 
 func TestAGYShimHelpers(t *testing.T) {
-	if got := AGYLastCommand("cd /tmp && FOO=1 go test ./..."); got != "go test ./..." {
-		t.Fatalf("last command: %q", got)
+	cases := []struct {
+		argv []string
+		want string
+	}{
+		{[]string{"-c", "ls -la"}, "ls -la"},
+		{[]string{"--norc", "-lc", "echo hi", "bash"}, "echo hi"},
+		{[]string{"-o", "pipefail", "-c", "x"}, "x"},
+		{[]string{"script.sh"}, ""},
+		{nil, ""},
 	}
-	if !AGYIsBashism("echo $(date)") || AGYIsBashism("printf ok") {
-		t.Fatal("bashism detection")
+	for _, c := range cases {
+		if got := AGYCommandOf(c.argv); got != c.want {
+			t.Fatalf("AGYCommandOf(%q) = %q, want %q", c.argv, got, c.want)
+		}
 	}
-	rw := StreamRewriter("/home/u/project", "/ws/body")
-	got := rw.Push("see /home/u/pro") + rw.Push("ject/file") + rw.Flush()
-	if got != "see /ws/body/file" {
-		t.Fatalf("stream rewrite: %q", got)
+	remote := &AGYRemote{Mount: "/ws/remote", Root: "/home/user/project", Shell: "bash"}
+	if got := AGYToRemote("cat /ws/remote/a.txt > /ws/remote/b", remote); got != "cat /home/user/project/a.txt > /home/user/project/b" {
+		t.Fatalf("toRemote: %q", got)
+	}
+	winRoot := &AGYRemote{Mount: "/ws", Root: "C:\\Users\\u"}
+	if got := AGYToRemote("dir C:\\x", winRoot); got != "dir C:\\x" {
+		t.Fatalf("windows root rewritten: %q", got)
+	}
+	if got := AGYRemoteCwd("/ws/remote/src/lib", remote); got != "src/lib" {
+		t.Fatalf("remoteCwd: %q", got)
+	}
+	if got := AGYRemoteCwd("/elsewhere", remote); got != "." {
+		t.Fatalf("remoteCwd outside mount: %q", got)
+	}
+	mapper := agyOutputMapper(remote)
+	chunks := []string{"/home/user/pro", "ject/a" + string([]byte{10}) + "/home/u", "ser/project"}
+	joined := ""
+	for _, c := range chunks {
+		joined += mapper.Push(c)
+	}
+	joined += mapper.Flush()
+	if want := "/ws/remote/a" + string([]byte{10}) + "/ws/remote"; joined != want {
+		t.Fatalf("output mapping: %q want %q", joined, want)
 	}
 }

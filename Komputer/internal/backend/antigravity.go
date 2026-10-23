@@ -433,6 +433,7 @@ func withGuard(policy *AGYPolicy, guard string, hooked, skip bool) *AGYPolicy {
 	out.Guard = guard
 	out.Hooked = hooked
 	out.Background = skip
+	out.Skip = skip
 	return &out
 }
 
@@ -450,7 +451,7 @@ func (a *Antigravity) newParser(session SessionRef, sink domain.Sink, bail func(
 	}
 	return &agyParser{
 		backend: a, session: session, requested: requested,
-		sink: sink, bail: bail, policy: policy, guard: guard,
+		sink: sink, bail: bail, policy: policy, guard: guard, skip: policy != nil && policy.Skip,
 		conversation: requested, announced: map[int]bool{}, flagged: map[int]bool{},
 	}
 }

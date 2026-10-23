@@ -20,6 +20,7 @@ type AGYPolicy struct {
 	Files      bool   `json:"files,omitempty"`
 	Hooked     bool   `json:"hooked,omitempty"`
 	Background bool   `json:"background,omitempty"`
+	Skip       bool   `json:"skip,omitempty"`
 }
 
 var hostFreeTools = map[string]bool{

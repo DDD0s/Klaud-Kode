@@ -83,6 +83,7 @@ type agyParser struct {
 	bail         func(*Failure)
 	policy       *AGYPolicy
 	guard        string
+	skip         bool
 	conversation string
 	always       bool
 	result       *agyResult
@@ -193,7 +194,7 @@ func (p *agyParser) Line(line string) {
 		if ev.Init != nil {
 			p.always = ev.Init.PermissionMode == "always-proceed"
 		}
-		if p.always && warnedAlwaysProceed.CompareAndSwap(false, true) {
+		if p.always && !p.skip && warnedAlwaysProceed.CompareAndSwap(false, true) {
 			p.backend.logf("WARNING: agy reports permission_mode always-proceed without --dangerously-skip-permissions: its built-in tools run on this host without asking")
 		}
 	case "step_update":

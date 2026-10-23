@@ -1,11 +1,17 @@
 package body
 
-import "bytes"
+import (
+	"bytes"
+	"sync"
+)
 
 // HeadAndTail collects output while keeping memory bounded, holding onto
 // the beginning and the end. A build log's first lines say what ran and its
 // last lines say why it failed; the middle is filler.
 type HeadAndTail struct {
+	// A concurrent writer is possible when the collector is handed to a
+	// command as an io.Writer (stdout and stderr may be copied in parallel).
+	mu      sync.Mutex
 	headMax int
 	tailMax int
 	head    [][]byte
@@ -23,6 +29,8 @@ func NewHeadAndTail(max int) *HeadAndTail {
 
 // Push adds one output chunk; the bytes are copied.
 func (h *HeadAndTail) Push(chunk []byte) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.total += len(chunk)
 	if h.headLen < h.headMax {
 		take := min(len(chunk), h.headMax-h.headLen)
@@ -41,6 +49,14 @@ func (h *HeadAndTail) Push(chunk []byte) {
 	}
 }
 
+// Write implements io.Writer so the collector can be a command's Stdout or
+// Stderr directly. Handing the command a writer makes cmd.Wait also wait for
+// the copy goroutines, which a StdoutPipe read after Wait can miss.
+func (h *HeadAndTail) Write(chunk []byte) (int, error) {
+	h.Push(chunk)
+	return len(chunk), nil
+}
+
 func trimToCharStart(buf []byte) []byte {
 	i := 0
 	for i < len(buf) && i < 4 && buf[i]&0xc0 == 0x80 {
@@ -51,6 +67,8 @@ func trimToCharStart(buf []byte) []byte {
 
 // Finish returns the kept bytes and how many middle bytes were dropped.
 func (h *HeadAndTail) Finish() (buf []byte, dropped int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	head := bytes.Join(h.head, nil)
 	tail := bytes.Join(h.tail, nil)
 	if len(tail) > h.tailMax {

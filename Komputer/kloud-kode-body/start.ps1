@@ -1,12 +1,9 @@
 # Start the Kloud Kode Body on this computer.
-#
-# The service is the Go binary built from Komputer/cmd/kloud-kode. It is built
-# here on first start and whenever a source file is newer than the binary.
-# Set KOMPUTER_IMPL=node to run the previous JavaScript implementation instead.
+# Runs a checksum-verified precompiled release; no Go toolchain is needed.
+# KLOUD_KODE_BUILD=1 builds from this checkout instead.
 $ErrorActionPreference = "Stop"
 $Dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Module = Split-Path -Parent $Dir
-$Bin = Join-Path $Dir "kloud-kode.exe"
 $Mode = if ($args.Count -ge 1) { $args[0] } else { "http" }
 
 if ($env:KOMPUTER_IMPL -eq "node") {
@@ -16,23 +13,46 @@ if ($env:KOMPUTER_IMPL -eq "node") {
   exit $LASTEXITCODE
 }
 
-$Go = if ($env:GO_BIN) { $env:GO_BIN } else { (Get-Command go -ErrorAction SilentlyContinue).Source }
+function Ensure-Binary {
+  if ($env:KLOUD_KODE_BIN) {
+    if (-not (Test-Path $env:KLOUD_KODE_BIN)) { throw "KLOUD_KODE_BIN does not exist: $env:KLOUD_KODE_BIN" }
+    return (Resolve-Path $env:KLOUD_KODE_BIN).Path
+  }
+  $version = $env:KLOUD_KODE_VERSION
+  if (-not $version -and (Test-Path (Join-Path $Module "VERSION"))) { $version = (Get-Content (Join-Path $Module "VERSION") -Raw).Trim() }
+  $repo = if ($env:KLOUD_KODE_REPO) { $env:KLOUD_KODE_REPO } else { "DDD0s/Kloud-Kode" }
+  if (-not $version -or $version -eq "latest") {
+    $version = (Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest").tag_name
+  }
+  $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }
+  $bin = Join-Path $Dir "kloud-kode.exe"
+  $marker = Join-Path $Dir ".kloud-kode-version"
+  if ((Test-Path $bin) -and (Test-Path $marker) -and ((Get-Content $marker -Raw).Trim() -eq $version)) { return $bin }
+  if ($env:KLOUD_KODE_BUILD -eq "1" -and (Get-Command go -ErrorAction SilentlyContinue)) {
+    Push-Location $Module; try { & go build -trimpath -o $bin ./cmd/kloud-kode } finally { Pop-Location }
+    if ($LASTEXITCODE -ne 0) { throw "go build failed" }
+    Set-Content $marker $version -Encoding ascii
+    return $bin
+  }
+  $base = if ($env:KLOUD_KODE_RELEASE_BASE) { $env:KLOUD_KODE_RELEASE_BASE } else { "https://github.com/$repo/releases" }
+  $asset = "kloud-kode-$version-windows-$arch.zip"
+  $tmp = Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString("N"))
+  New-Item -ItemType Directory -Force $tmp | Out-Null
+  try {
+    Write-Host "downloading Kloud Kode $version (windows/$arch)"
+    Invoke-WebRequest "$base/download/$version/$asset" -OutFile (Join-Path $tmp $asset)
+    Invoke-WebRequest "$base/download/$version/SHA256SUMS" -OutFile (Join-Path $tmp "SHA256SUMS")
+    $expected = ((Get-Content (Join-Path $tmp "SHA256SUMS") | Where-Object { $_ -match [regex]::Escape($asset) }) -split "\s+")[0].ToLower()
+    $actual = (Get-FileHash (Join-Path $tmp $asset) -Algorithm SHA256).Hash.ToLower()
+    if ($actual -ne $expected) { throw "checksum mismatch for $asset" }
+    Expand-Archive (Join-Path $tmp $asset) (Join-Path $tmp "extract") -Force
+    Copy-Item (Join-Path $tmp "extract\kloud-kode.exe") $bin -Force
+    Set-Content $marker $version -Encoding ascii
+  } finally { Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue }
+  return $bin
+}
 
-$stale = -not (Test-Path $Bin)
-if (-not $stale) {
-  $binTime = (Get-Item $Bin).LastWriteTimeUtc
-  $newer = Get-ChildItem (Join-Path $Module "cmd"), (Join-Path $Module "internal") -Recurse -Filter *.go |
-    Where-Object { $_.LastWriteTimeUtc -gt $binTime } | Select-Object -First 1
-  if ($newer) { $stale = $true }
-  elseif ((Get-Item (Join-Path $Module "go.mod")).LastWriteTimeUtc -gt $binTime) { $stale = $true }
-}
-if ($stale) {
-  if (-not $Go) { throw "go not found and $Bin is missing or stale. Install Go 1.27+ or set GO_BIN" }
-  Write-Host "building $Bin"
-  Push-Location $Module
-  try { & $Go build -trimpath -o $Bin ./cmd/kloud-kode } finally { Pop-Location }
-  if ($LASTEXITCODE -ne 0) { throw "go build failed" }
-}
+$Bin = Ensure-Binary
 Push-Location $Dir
 try { & $Bin body $Mode } finally { Pop-Location }
 exit $LASTEXITCODE

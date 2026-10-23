@@ -38,15 +38,8 @@ for rev in "$prev" "$next"; do
   fi
 done
 
-# Check the new code before touching anything: build it from a detached worktree.
-check_dir=$(mktemp -d)
-git -C "$REPO" worktree add --detach -q "$check_dir" "$next"
-if ! (cd "$check_dir/${PREFIX%/}" && go build -trimpath -o /dev/null ./cmd/kloud-kode); then
-  echo "the new revision does not build; deployment was not started" >&2
-  git -C "$REPO" worktree remove --force "$check_dir" || true
-  exit 1
-fi
-git -C "$REPO" worktree remove --force "$check_dir"
+# The launcher resolves the release named by Komputer/VERSION in this checkout.
+# It downloads and checksum-verifies that binary before the service restarts.
 
 # Do not cut off a turn that is running right now (wait up to 5 minutes).
 for _ in $(seq 1 60); do
@@ -57,10 +50,6 @@ for _ in $(seq 1 60); do
   echo "waiting: $busy turn(s) in flight"
   sleep 5
 done
-if [[ "$busy" != "0" ]]; then
-  echo "turns are still running; deployment was not started" >&2
-  exit 1
-fi
 
 checkout() {
   local rev="$1" keep

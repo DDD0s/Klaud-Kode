@@ -1,0 +1,61 @@
+# Build and publish the precompiled Kloud Kode binaries.
+#
+# A release is created by pushing a version tag (for example v1.0.0). The tag
+# must match Komputer/VERSION so a checkout always knows which binary its
+# launcher should download. workflow_dispatch builds the same assets without
+# publishing, for smoke-testing the packaging itself.
+name: Release binaries
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: Komputer/go.mod
+          cache: false
+      - name: Test, build and package every platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < Komputer/VERSION)"
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "$version" ]]; then echo "tag $GITHUB_REF_NAME does not match Komputer/VERSION $version" >&2; exit 1; fi
+          commit="$(git rev-parse --short HEAD)"; date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          (cd Komputer && go vet ./... && go test ./...)
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 windows/amd64 windows/arm64 darwin/amd64 darwin/arm64; do
+            goos="${target%/*}"; goarch="${target#*/}"; ext=""; if [[ "$goos" == windows ]]; then ext=".exe"; fi
+            stage="$(mktemp -d)"
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -C Komputer -trimpath -ldflags "-s -w -X main.buildVersion=$version -X main.buildCommit=$commit -X main.buildDate=$date" -o "$stage/kloud-kode$ext" ./cmd/kloud-kode
+            asset="kloud-kode-$version-$goos-$goarch"
+            if [[ "$goos" == windows ]]; then (cd "$stage" && zip -q "$GITHUB_WORKSPACE/dist/$asset.zip" "kloud-kode$ext"); else chmod +x "$stage/kloud-kode"; tar -C "$stage" -czf "dist/$asset.tar.gz" kloud-kode; fi
+            rm -rf "$stage"
+          done
+          (cd dist && sha256sum kloud-kode-* > SHA256SUMS)
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/kloud-kode-* dist/SHA256SUMS --repo "$GITHUB_REPOSITORY" --title "Kloud Kode $GITHUB_REF_NAME" --generate-notes
+      - name: Keep manual-build artifacts
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: kloud-kode-${{ env.VERSION }}
+          path: dist/kloud-kode-*
+          if-no-files-found: error

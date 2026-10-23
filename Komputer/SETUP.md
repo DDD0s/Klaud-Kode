@@ -8,9 +8,8 @@
 
 ## 准备
 
-远端需要 Git、Bash、curl、Go 1.27 以上，以及已经登录的官方 Claude Code。
-服务是 `Komputer/cmd/kloud-kode` 编出来的单个二进制，首次启动时自动编译，之后源码有改动才重编。
-旧的 JavaScript 实现仍留在仓库里，`KOMPUTER_IMPL=node` 可以回退运行它，那时才需要 Node.js 20 以上。
+远端需要 Git、Bash、curl，以及已经登录的官方 Claude Code。不需要安装 Go：`start.sh` 会按 `Komputer/VERSION` 从 GitHub Releases 下载对应平台的预编译二进制，并校验 SHA-256。
+只有从源码开发或设置 `KLOUD_KODE_BUILD=1` 时才需要 Go 1.27 以上。旧的 JavaScript 实现仍留在仓库里，`KOMPUTER_IMPL=node` 可以回退运行它，那时才需要 Node.js 20 以上。
 
 Claude Code 按 [官方安装说明](https://code.claude.com/docs/en/setup) 安装。
 用准备运行服务的普通用户执行下面两条命令，确认能启动并完成登录，不要用 root 跑服务：
@@ -34,8 +33,7 @@ cd Kloud-Kode/Komputer/komputer-api
 cp env.example env
 ```
 
-`start.sh` 会在第一次启动时用 `go build` 生成 `komputer-api/kloud-kode`。
-Go 不在服务的 PATH 里时，在 `env` 中设置 `GO_BIN` 指向 `go` 的完整路径。
+`start.sh` 第一次启动时下载预编译的 `komputer-api/kloud-kode`，以后只在 `Komputer/VERSION` 指向的版本变化时更新。用 `KLOUD_KODE_VERSION=vX.Y.Z` 可以固定版本，`KLOUD_KODE_BIN` 可以指定已有二进制，`KLOUD_KODE_BUILD=1` 则改为从当前源码构建。
 
 下面的远端命令都在 `komputer-api` 目录执行。已有安装不要直接覆盖 `env`，升级说明见
 [命名迁移](docs/komputer-migration.md)。

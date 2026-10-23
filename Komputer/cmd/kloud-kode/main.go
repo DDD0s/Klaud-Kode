@@ -19,9 +19,20 @@ import (
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/config"
 )
 
+// Build metadata is injected by the release workflow with -ldflags -X.
+var (
+	buildVersion = "dev"
+	buildCommit  = "unknown"
+	buildDate    = "unknown"
+)
+
+func printVersion() {
+	fmt.Printf("kloud-kode %s (commit %s, built %s)\n", buildVersion, buildCommit, buildDate)
+}
+
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: kloud-kode <api|body|bridge|hook|shim>")
-	fmt.Fprintln(os.Stderr, "this Go rewrite slice implements: api, body, bridge, hook, shim")
+	fmt.Fprintln(os.Stderr, "usage: kloud-kode <api|body|bridge|hook|shim|version>")
+	fmt.Fprintln(os.Stderr, "this Go rewrite slice implements: api, body, bridge, hook, shim, version")
 }
 
 func main() {
@@ -37,6 +48,9 @@ func run(args []string) error {
 		command = args[0]
 	}
 	switch command {
+	case "version", "-version", "--version", "-v":
+		printVersion()
+		return nil
 	case "api":
 		cfg, err := config.Load(childenv.FromList(os.Environ()))
 		if err != nil {

@@ -2,8 +2,9 @@
 # Start the Kloud Kode API on the brain host. Paths come from where this script
 # lives, so the checkout can sit anywhere.
 #
-# The service is the Go binary built from Komputer/cmd/kloud-kode. It is built
-# here on first start and whenever a source file is newer than the binary.
+# The service runs a checksum-verified precompiled Kloud Kode release.
+# The launcher downloads the version named by Komputer/VERSION (or
+# KLOUD_KODE_VERSION / the latest release) beside this script on first start.
 # KOMPUTER_IMPL=node runs the previous JavaScript implementation instead, which
 # stays in the tree as the rollback path.
 set -euo pipefail
@@ -22,29 +23,33 @@ if [[ -f "$DIR/env" ]]; then
   set +a
 fi
 
-GO="${GO_BIN:-$(command -v go || true)}"
-
-build_binary() {
-  local stale=0
-  if [[ ! -x "$BIN" ]]; then
-    stale=1
-  elif [[ -n "$(find "$MODULE/cmd" "$MODULE/internal" -name '*.go' -newer "$BIN" -print -quit 2>/dev/null)" ]]; then
-    stale=1
-  elif [[ "$MODULE/go.mod" -nt "$BIN" ]] || [[ "$MODULE/go.sum" -nt "$BIN" ]]; then
-    stale=1
-  fi
-  if [[ "$stale" == "0" ]]; then
+ensure_binary() {
+  if [[ -n "${KLOUD_KODE_BIN:-}" ]]; then
+    [[ -x "$KLOUD_KODE_BIN" ]] || { echo "ERROR: KLOUD_KODE_BIN is not executable: $KLOUD_KODE_BIN" >&2; exit 1; }
+    BIN="$KLOUD_KODE_BIN"
     return 0
   fi
-  if [[ -z "$GO" ]]; then
-    echo "ERROR: go not found and $BIN is missing or stale. Install Go 1.27+ or set GO_BIN in $DIR/env" >&2
-    echo "       (KOMPUTER_IMPL=node runs the JavaScript implementation instead)" >&2
-    exit 1
-  fi
-  echo "building $BIN"
-  # The binary sits in this directory, so the service resolves KEYS.txt,
-  # sessions.json and the session directory exactly where the JS version did.
-  (cd "$MODULE" && "$GO" build -trimpath -o "$BIN" ./cmd/kloud-kode)
+  local requested="${KLOUD_KODE_VERSION:-}" os arch ext bin_name asset tmp repo base marker
+  if [[ -z "$requested" && -f "$MODULE/VERSION" ]]; then requested="$(tr -d '[:space:]' < "$MODULE/VERSION")"; fi
+  [[ -n "$requested" ]] || requested="latest"
+  case "$(uname -s)" in Linux*) os=linux ;; Darwin*) os=darwin ;; MINGW*|MSYS*|CYGWIN*) os=windows ;; *) echo "unsupported operating system: $(uname -s)" >&2; exit 1 ;; esac
+  case "$(uname -m)" in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;; esac
+  ext=""; bin_name="kloud-kode"; if [[ "$os" == windows ]]; then ext=".exe"; bin_name="kloud-kode.exe"; fi
+  BIN="$DIR/$bin_name"; marker="$DIR/.kloud-kode-version"
+  repo="${KLOUD_KODE_REPO:-DDD0s/Kloud-Kode}"
+  if [[ "$requested" == latest ]]; then requested="$(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"; fi
+  [[ -n "$requested" ]] || { echo "ERROR: could not resolve the Kloud Kode release" >&2; exit 1; }
+  if [[ -x "$BIN" && -f "$marker" ]] && [[ "$(tr -d '[:space:]' < "$marker")" == "$requested" ]]; then return 0; fi
+  if [[ "${KLOUD_KODE_BUILD:-}" == 1 ]] && command -v go >/dev/null 2>&1; then echo "building $BIN from source (KLOUD_KODE_BUILD=1)"; (cd "$MODULE" && go build -trimpath -o "$BIN" ./cmd/kloud-kode); printf "%s\n" "$requested" > "$marker"; return 0; fi
+  base="${KLOUD_KODE_RELEASE_BASE:-https://github.com/$repo/releases}"
+  asset="kloud-kode-$requested-$os-$arch"; if [[ "$os" == windows ]]; then asset="$asset.zip"; else asset="$asset.tar.gz"; fi
+  tmp="$(mktemp -d)"; echo "downloading Kloud Kode $requested ($os/$arch)"
+  curl -fL --retry 3 -o "$tmp/$asset" "$base/download/$requested/$asset"
+  curl -fL --retry 3 -o "$tmp/SHA256SUMS" "$base/download/$requested/SHA256SUMS"
+  (cd "$tmp" && grep " $asset$" SHA256SUMS > asset.sha256 && sha256sum -c asset.sha256)
+  mkdir -p "$tmp/extract"; if [[ "$os" == windows ]]; then unzip -o -q "$tmp/$asset" -d "$tmp/extract"; else tar -xzf "$tmp/$asset" -C "$tmp/extract"; fi
+  install -m 0755 "$tmp/extract/$bin_name" "$BIN"; rm -rf "$tmp"
+  printf "%s\n" "$requested" > "$marker"; "$BIN" version >/dev/null
 }
 
 if [[ "${KOMPUTER_IMPL:-go}" == "node" ]]; then
@@ -55,12 +60,12 @@ if [[ "${KOMPUTER_IMPL:-go}" == "node" ]]; then
   fi
   RUN=("$NODE" "$DIR/server.mjs")
 else
-  build_binary
+  ensure_binary
   RUN=("$BIN" api)
 fi
 
 if [[ "${1:-}" == "--build-only" ]]; then
-  echo "built $BIN"
+  "$BIN" version
   exit 0
 fi
 

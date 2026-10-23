@@ -316,6 +316,13 @@ func (s *Service) Run(ctx context.Context, mode string) error {
 	if err != nil {
 		return err
 	}
+	// Say which address the API must be pointed at: a loopback bind is not
+	// reachable from another machine, which is the usual private-network slip.
+	if host, _, splitErr := net.SplitHostPort(listener.Addr().String()); splitErr == nil {
+		if host == "127.0.0.1" || host == "::1" || host == "localhost" {
+			s.logf("bound to loopback; another machine cannot reach it — set `host` in %s or KLOUD_KODE_BODY_HOST to the private-network address", s.cfg.ConfigPath)
+		}
+	}
 	// No ReadTimeout: a tool call can stream for minutes and MCP bodies reach
 	// 16 MB. The header timeout bounds opening, the read cap bounds the body.
 	server := &http.Server{

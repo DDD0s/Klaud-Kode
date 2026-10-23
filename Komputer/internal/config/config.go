@@ -80,14 +80,23 @@ type Claude struct {
 type Config struct {
 	SourceEnv map[string]string
 
-	BaseDir            string
-	RepoRoot           string
-	SessionDir         string
-	MCPConfig          string
-	InstanceID         string
-	WorkspaceRoot      string
-	TunnelUp           string
-	HealthURL          string
+	BaseDir       string
+	RepoRoot      string
+	SessionDir    string
+	MCPConfig     string
+	InstanceID    string
+	WorkspaceRoot string
+	TunnelUp      string
+	HealthURL     string
+	// BodyURL is the Body's MCP endpoint. When set, the API talks to the Body
+	// directly over the private network and never runs the SSH tunnel script.
+	BodyURL string
+	// BodyToken is written into the generated MCP config when the URL carries
+	// no token; empty means the Body needs no header.
+	BodyToken string
+	// BodyProbe is what the readiness check requests; empty derives it from
+	// BodyURL. It defaults to an SSH-tunnel health URL for compatibility.
+	BodyProbe          string
 	KeysFile           string
 	SessionsFile       string
 	ResponsesFile      string
@@ -271,6 +280,18 @@ var backendAliases = map[string]string{
 	"muse": "muse", "muse-code": "muse",
 }
 
+// deriveProbe turns an MCP URL into a health URL. The token path segment is
+// dropped because /healthz is public on the Body.
+func deriveProbe(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	parsed.Path = "/healthz"
+	parsed.RawQuery = ""
+	return parsed.String()
+}
+
 // Load parses and validates the configuration.
 func Load(source map[string]string) (Config, error) {
 	e := envMap(source)
@@ -326,6 +347,9 @@ func Load(source map[string]string) (Config, error) {
 	}
 	claudeCwd, _ := filepath.Abs(e.get("KOMPUTER_CLAUDE_CWD", filepath.Join(cfg.WorkspaceRoot, cfg.InstanceID)))
 	cfg.TunnelUp = e.get("KOMPUTER_TUNNEL_UP", filepath.Join(cfg.RepoRoot, "komputer", "tunnel-up.sh"))
+	cfg.BodyURL = e.get("KOMPUTER_BODY_URL", "")
+	cfg.BodyProbe = e.get("KOMPUTER_BODY_PROBE", "")
+	cfg.BodyToken = e.get("KOMPUTER_BODY_TOKEN", "")
 	cfg.HealthURL = e.get("KOMPUTER_HEALTH_URL", "http://127.0.0.1:18787/healthz")
 	cfg.KeysFile = e.get("KOMPUTER_KEYS_FILE", filepath.Join(cfg.BaseDir, "KEYS.txt"))
 	cfg.SessionsFile = e.get("KOMPUTER_SESSIONS_FILE", filepath.Join(cfg.BaseDir, "sessions.json"))
@@ -375,7 +399,19 @@ func Load(source map[string]string) (Config, error) {
 	}
 	cfg.StreamToolNotes = !falsy(e["KOMPUTER_STREAM_TOOL_NOTES"])
 	cfg.StreamThinking = !falsy(e["KOMPUTER_STREAM_THINKING"])
-	cfg.SkipTunnel = truthy(e["KOMPUTER_SKIP_TUNNEL"])
+	// A direct Body URL makes the SSH tunnel optional; reachability is checked
+	// against that address instead of a forwarded loopback port.
+	if cfg.BodyURL != "" {
+		if _, err := url.Parse(cfg.BodyURL); err != nil {
+			return cfg, fmt.Errorf("KOMPUTER_BODY_URL is not a URL: %w", err)
+		}
+		cfg.SkipTunnel = true
+		if cfg.BodyProbe == "" {
+			cfg.BodyProbe = deriveProbe(cfg.BodyURL)
+		}
+		cfg.HealthURL = cfg.BodyProbe
+	}
+	cfg.SkipTunnel = truthy(e["KOMPUTER_SKIP_TUNNEL"]) || cfg.SkipTunnel
 	if cfg.TunnelFailCache, err = e.durationMs("KOMPUTER_TUNNEL_FAIL_CACHE_MS", 30*time.Second); err != nil {
 		return cfg, err
 	}

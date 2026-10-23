@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/version"
@@ -121,6 +122,18 @@ func LoadConfig() (Config, error) {
 	}
 	if raw.Host != nil {
 		cfg.Host = *raw.Host
+	}
+	// Reaching the Body from another machine needs a reachable bind address.
+	// Loopback is still the default so a plain install stays unexposed.
+	if host := os.Getenv("KLOUD_KODE_BODY_HOST"); host != "" {
+		cfg.Host = host
+	}
+	if port := os.Getenv("KLOUD_KODE_BODY_PORT"); port != "" {
+		if parsed, err := strconv.Atoi(port); err == nil {
+			cfg.Port = parsed
+		} else {
+			return Config{}, fmt.Errorf("KLOUD_KODE_BODY_PORT is not a number: %q", port)
+		}
 	}
 	if raw.DefaultRoot != "" {
 		cfg.DefaultRoot = raw.DefaultRoot

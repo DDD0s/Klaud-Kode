@@ -114,6 +114,30 @@ curl -fsS http://127.0.0.1:18888/v1/chat/completions \
 ssh -N -L 18888:127.0.0.1:18888 your-user@your-server
 ```
 
+### 用虚拟内网时怎么填
+
+推荐用 Tailscale、ZeroTier 或 WireGuard：两台机器各自安装并加入同一网络，之后的地址用内网地址，
+不需要公网 IP、路由器端口映射或 SSH。
+
+远端 `env`：
+
+```bash
+KOMPUTER_API_HOST=0.0.0.0
+```
+
+本地客户端填大脑的内网 IP，例如 `http://100.64.0.7:18888/v1`。
+有防火墙就只放行内网网段，不要顺带打开公网。
+
+Body 也可以走同一个内网，不再需要 SSH 隧道：Body 的 `config.json` 把 `host` 改成内网地址（或设 `KLOUD_KODE_BODY_HOST`），
+远端 `env` 设置 `KOMPUTER_BODY_URL`，MCP 配置会自动生成：
+
+```bash
+KOMPUTER_BODY_URL=http://100.64.0.8:8787/mcp/YOUR_BODY_TOKEN
+```
+
+设置了 `KOMPUTER_BODY_URL` 时不再使用 `tunnel-up.sh`，`KOMPUTER_SKIP_TUNNEL` 和 `BODY_SSH` 都可以不写。
+token 也可以放在 `KOMPUTER_BODY_TOKEN` 里，地址就写成 `http://100.64.0.8:8787/mcp`。
+
 最后一种情况下，本地客户端可以填 `http://127.0.0.1:18888/v1`。
 这是后台传输，发消息仍在本地客户端里，不是让你每天 SSH 上去操作 Claude。
 
@@ -187,7 +211,9 @@ chmod 600 "$HOME/.config/komputer/mcp.json"
 
 不要在仓库里的模板中填写真实 token；模板本身是被 Git 跟踪的，`.gitignore` 不会保护它。
 
-修改 `env`：删掉前面设置的 `KOMPUTER_TUNNEL_UP=/bin/true`，把 `KOMPUTER_SKIP_TUNNEL` 改成 `0`，
+如果两台机器在同一个虚拟内网里，用上面的 `KOMPUTER_BODY_URL` 更省事：不用 SSH，也不用下面的模板。
+
+否则（要用 SSH 隧道时）修改 `env`：删掉前面设置的 `KOMPUTER_TUNNEL_UP=/bin/true`，把 `KOMPUTER_SKIP_TUNNEL` 改成 `0`，
 并补上另外两行：
 
 ```bash

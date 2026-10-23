@@ -18,6 +18,8 @@
   但要先解决空闲进程的内存（约 240MB）和超时回收。
 - Responses 的回复存储只按数量淘汰，还没有按时间清理。
 - 改进进程管理。现有启动脚本使用 PID 文件，没有附带 systemd 或其他服务管理配置。
+- Body 目前靠虚拟内网（Tailscale / ZeroTier / WireGuard）或 SSH 隧道到达，用 `KOMPUTER_BODY_URL` 直连。
+  下一步做成 Body 主动向外连接、断线自动重连，这样两者都不需要；顺带支持一台电脑绑多个 Body。
 
 ## 本地操作还差什么
 

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 	"unicode/utf16"
@@ -125,11 +126,38 @@ func (s *Server) handleCountTokens(w http.ResponseWriter, r *http.Request) error
 	return nil
 }
 
+// maskURLToken hides a token carried in a URL path segment, which the health
+// payload can be read by any authenticated caller.
+func maskURLToken(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(segments) >= 2 && segments[0] == "mcp" {
+		parsed.Path = "/mcp/" + maskToken(segments[1])
+	}
+	return parsed.String()
+}
+
+// maskToken keeps the first four and last two characters of a secret.
+func maskToken(token string) string {
+	if len(token) <= 8 {
+		return "masked"
+	}
+	return token[:4] + "..." + token[len(token)-2:]
+}
+
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	base := map[string]any{"ok": true, "service": "komputer-api"}
 	if !s.validKey(extractAPIKey(r)) {
 		writeJSON(w, http.StatusOK, base, nil)
 		return
+	}
+	// A direct Body is checked here, so an operator sees reachability without a
+	// turn; the guard caches both outcomes.
+	if s.cfg.BodyURL != "" {
+		_ = s.tunnel.ensure()
 	}
 	bodyOK, bodyChecked := s.tunnel.status()
 	listen := make([]string, 0, len(s.cfg.Listen))
@@ -148,17 +176,20 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"max_sessions": maxSessions, "max_in_flight": s.cfg.MaxInFlight,
 		"idle_timeout_ms": s.cfg.IdleTimeout.Milliseconds(), "auth_failures": s.authFailures.Load(),
 		"builtin_tools": s.cfg.BuiltinTools, "no_key_mode": s.cfg.NoKeyMode, "listen": listen,
-		"body_probe_skipped": s.cfg.SkipTunnel,
+		"body_probe_skipped": s.cfg.SkipTunnel && s.cfg.BodyURL == "",
+		"body_direct":        s.cfg.BodyURL != "",
 		"client_tools":       s.harness.Stats(),
 		"implementation":     "go",
 		"version":            version.Value,
 	}
-	if s.cfg.SkipTunnel {
-		body["body_ok"] = nil
-	} else if bodyOK != nil {
+	// A direct Body URL is probed for real; only a skipped check reports null.
+	if bodyOK != nil {
 		body["body_ok"] = *bodyOK
 	} else {
 		body["body_ok"] = nil
+	}
+	if s.cfg.BodyURL != "" {
+		body["body_url"] = maskURLToken(s.cfg.BodyURL)
 	}
 	if bodyChecked != nil {
 		body["body_checked_at"] = *bodyChecked

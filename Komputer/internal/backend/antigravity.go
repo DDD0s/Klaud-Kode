@@ -101,15 +101,18 @@ func (a *Antigravity) logf(format string, args ...any) {
 	}
 }
 
-func (a *Antigravity) Name() string           { return "antigravity" }
-func (a *Antigravity) Bin() string            { return a.cfg.Bin }
-func (a *Antigravity) Cwd() string            { return a.cfg.Cwd }
-func (a *Antigravity) IDs() []string          { return append([]string{}, a.ids...) }
-func (a *Antigravity) DefaultID() string      { return a.cfg.ModelID }
-func (a *Antigravity) TaskModel() string      { return a.cfg.TaskModel }
-func (a *Antigravity) AssignsSessionID() bool { return true }
-func (a *Antigravity) InlinesSystem() bool    { return true }
-func (a *Antigravity) NewSessionID() string   { return "" }
+func (a *Antigravity) Name() string { return "antigravity" }
+func (a *Antigravity) Bin() string  { return a.cfg.Bin }
+func (a *Antigravity) Cwd() string  { return a.cfg.Cwd }
+
+// Cfg exposes the backend configuration so the server can adjust it.
+func (a *Antigravity) Cfg() *config.Antigravity { return &a.cfg }
+func (a *Antigravity) IDs() []string            { return append([]string{}, a.ids...) }
+func (a *Antigravity) DefaultID() string        { return a.cfg.ModelID }
+func (a *Antigravity) TaskModel() string        { return a.cfg.TaskModel }
+func (a *Antigravity) AssignsSessionID() bool   { return true }
+func (a *Antigravity) InlinesSystem() bool      { return true }
+func (a *Antigravity) NewSessionID() string     { return "" }
 
 func (a *Antigravity) Owns(id string) bool {
 	for _, advertised := range a.ids {

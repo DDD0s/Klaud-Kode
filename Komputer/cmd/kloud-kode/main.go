@@ -17,17 +17,11 @@ import (
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/body"
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/childenv"
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/config"
-)
-
-// Build metadata is injected by the release workflow with -ldflags -X.
-var (
-	buildVersion = "dev"
-	buildCommit  = "unknown"
-	buildDate    = "unknown"
+	"github.com/DDD0s/Kloud-Kode/Komputer/internal/version"
 )
 
 func printVersion() {
-	fmt.Printf("kloud-kode %s (commit %s, built %s)\n", buildVersion, buildCommit, buildDate)
+	fmt.Printf("kloud-kode %s (commit %s, built %s)\n", version.Value, version.Commit, version.Date)
 }
 
 func usage() {

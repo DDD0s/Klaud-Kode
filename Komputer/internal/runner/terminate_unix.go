@@ -8,12 +8,15 @@ import (
 	"time"
 )
 
+// terminateProcess asks the CLI and its process group to stop, then kills the
+// group if it is still alive after a short grace period.
 func terminateProcess(cmd *exec.Cmd) {
 	if cmd.Process == nil {
 		return
 	}
-	_ = cmd.Process.Signal(syscall.SIGTERM)
+	pid := cmd.Process.Pid
+	_ = syscall.Kill(-pid, syscall.SIGTERM)
 	time.AfterFunc(5*time.Second, func() {
-		_ = cmd.Process.Kill()
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
 	})
 }

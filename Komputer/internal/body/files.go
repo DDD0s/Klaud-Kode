@@ -79,6 +79,16 @@ func WalkFiles(root string, visit func(abs, rel string, isDir bool) bool) {
 // GlobPattern compiles the small glob subset find_files accepts: ** crosses
 // directories, * does not, ? is one character.
 func GlobPattern(pattern string) *regexp.Regexp {
+	re, err := regexp.Compile(globSource(pattern))
+	if err != nil {
+		// QuoteMeta output is always valid, so this is unreachable; fall back
+		// to a literal match rather than panicking in a tool call.
+		return regexp.MustCompile("^" + regexp.QuoteMeta(pattern) + "$")
+	}
+	return re
+}
+
+func globSource(pattern string) string {
 	var re strings.Builder
 	for i := 0; i < len(pattern); i++ {
 		c := pattern[i]
@@ -101,9 +111,11 @@ func GlobPattern(pattern string) *regexp.Regexp {
 	}
 	flags := "^"
 	if IsWindows {
+		// Windows paths are case-insensitive and may arrive with either
+		// separator, so match both and compare without case.
 		flags = "(?i)^"
 	}
-	return regexp.MustCompile(flags + re.String() + "$")
+	return flags + re.String() + "$"
 }
 
 // FileInfoResult is one stat result in tool-output shape.
@@ -137,7 +149,7 @@ func statOne(abs string) (os.FileInfo, string, error) {
 func StatPath(res Resolved) FileInfoResult {
 	out := FileInfoResult{Path: res.Rel, Root: res.RootName}
 	info, typ, err := statOne(res.Abs)
-	if err != nil {
+	if err != nil || info == nil {
 		return out
 	}
 	out.Exists = true
@@ -409,6 +421,9 @@ func truncateRunes(s string, n int) string {
 
 // UTF16Index returns the UTF-16 code-unit index of byte offset in s.
 func UTF16Index(s string, byteOffset int) int {
+	if byteOffset > len(s) {
+		byteOffset = len(s)
+	}
 	units := 0
 	for _, r := range s[:byteOffset] {
 		units += utf16.RuneLen(r)

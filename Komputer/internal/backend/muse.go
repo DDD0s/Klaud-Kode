@@ -134,9 +134,12 @@ func NewMuse(cfg config.Muse) *Muse {
 	return &Muse{cfg: cfg, ids: ids}
 }
 
-func (m *Muse) Name() string           { return "muse" }
-func (m *Muse) Bin() string            { return m.cfg.Bin }
-func (m *Muse) Cwd() string            { return m.cfg.Cwd }
+func (m *Muse) Name() string { return "muse" }
+func (m *Muse) Bin() string  { return m.cfg.Bin }
+func (m *Muse) Cwd() string  { return m.cfg.Cwd }
+
+// Cfg exposes the backend configuration so the server can adjust it.
+func (m *Muse) Cfg() *config.Muse      { return &m.cfg }
 func (m *Muse) IDs() []string          { return append([]string{}, m.ids...) }
 func (m *Muse) DefaultID() string      { return m.cfg.ModelID }
 func (m *Muse) TaskModel() string      { return m.cfg.TaskModel }

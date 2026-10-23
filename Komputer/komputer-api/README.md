@@ -169,7 +169,7 @@ Claude Code 自身的提示、用户配置、memory 或 skills 仍可能带入�
 
 ## 配置
 
-`start.sh` 读取同目录的 `env`，下载并运行与 `Komputer/VERSION` 对应的预编译 `kloud-kode` 二进制（校验 SHA-256）；直接执行二进制或 `node server.mjs` 都不会自动读取这个文件。
+`start.sh` 读取同目录的 `env`，把与 `Komputer/VERSION` 对应的预编译二进制下载到 `bin/`（校验 SHA-256）后运行；直接执行二进制或 `node server.mjs` 都不会自动读取这个文件。
 修改配置后需要重启。文件格式和示例见 [env.example](env.example)。
 需要回退到旧的 JavaScript 实现时用 `KOMPUTER_IMPL=node ./start.sh`；两种实现读写同一份 `KEYS.txt`、`sessions.json`、`responses.json` 和 MCP 配置，可以互相接续。
 

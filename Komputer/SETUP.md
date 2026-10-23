@@ -33,7 +33,8 @@ cd Kloud-Kode/Komputer/komputer-api
 cp env.example env
 ```
 
-`start.sh` 第一次启动时下载预编译的 `komputer-api/kloud-kode`，以后只在 `Komputer/VERSION` 指向的版本变化时更新。用 `KLOUD_KODE_VERSION=vX.Y.Z` 可以固定版本，`KLOUD_KODE_BIN` 可以指定已有二进制，`KLOUD_KODE_BUILD=1` 则改为从当前源码构建。
+`start.sh` 第一次启动时下载预编译二进制到 `komputer-api/bin/`，校验 SHA-256，并在 `Komputer/VERSION` 变化时换用新版本；旧版本文件保留，正在运行的进程不会被覆盖。用 `KLOUD_KODE_VERSION=vX.Y.Z` 可以固定版本，`KLOUD_KODE_BIN` 可以指定已有二进制，`KLOUD_KODE_BUILD=1` 则改为从当前源码构建。
+下载需要 `curl`，Windows 上解压还需要 `unzip`（Git for Windows 自带）。
 
 下面的远端命令都在 `komputer-api` 目录执行。已有安装不要直接覆盖 `env`，升级说明见
 [命名迁移](docs/komputer-migration.md)。

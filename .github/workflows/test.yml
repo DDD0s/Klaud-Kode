@@ -96,9 +96,23 @@ jobs:
         if: runner.os == 'Windows'
         working-directory: Komputer
         run: go test ./...
-      - name: Build Linux and Windows binaries
+      # Every release target must cross-compile, or a tag build breaks after merge.
+      - name: Cross-compile every release target
         working-directory: Komputer
         shell: bash
         run: |
-          GOOS=linux GOARCH=amd64 go build -o /tmp/kloud-kode-linux ./cmd/kloud-kode
-          GOOS=windows GOARCH=amd64 go build -o /tmp/kloud-kode-windows.exe ./cmd/kloud-kode
+          set -euo pipefail
+          for target in linux/amd64 linux/arm64 windows/amd64 windows/arm64 darwin/amd64 darwin/arm64; do
+            GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 go build -o /dev/null ./cmd/kloud-kode
+            echo "ok ${target}"
+          done
+      - name: Check version consistency and the version command
+        working-directory: Komputer
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "VERSION must look like v1.2.3, got '$version'" >&2; exit 1; }
+          out="$(go run -ldflags "-X github.com/DDD0s/Kloud-Kode/Komputer/internal/version.Value=$version" ./cmd/kloud-kode version)"
+          echo "$out"
+          [[ "$out" == "kloud-kode $version "* ]] || { echo "build metadata was not applied" >&2; exit 1; }

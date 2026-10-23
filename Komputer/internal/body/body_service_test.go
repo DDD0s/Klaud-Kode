@@ -313,6 +313,37 @@ func TestBodyMCPHTTPAndStdio(t *testing.T) {
 		t.Fatalf("unknown path status %d: %s", status, data)
 	}
 
+	// A streamable-HTTP client opens GET first; it must not look like a method
+	// error, or the client falls back and retries.
+	getReq, _ := http.NewRequest(http.MethodGet, ts.URL+"/mcp/"+service.cfg.Token, nil)
+	getResp, err := http.DefaultClient.Do(getReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	getResp.Body.Close()
+	if getResp.StatusCode != 200 {
+		t.Fatalf("GET stream status %d", getResp.StatusCode)
+	}
+	// The auth challenge should tell clients how to authenticate.
+	if _, data := postPath("/mcp/wrong-token", ping); !strings.Contains(string(data), "invalid token") {
+		t.Fatalf("401 body changed: %s", data)
+	}
+	// A malformed Authorization header must not authorize anything.
+	raw, _ := json.Marshal(ping)
+	badReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/mcp", bytes.NewReader(raw))
+	badReq.Header.Set("Authorization", service.cfg.Token) // no "Bearer " prefix
+	badResp, err := http.DefaultClient.Do(badReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	badResp.Body.Close()
+	if badResp.StatusCode != 401 {
+		t.Fatalf("scheme-less header status %d", badResp.StatusCode)
+	}
+	if badResp.Header.Get("WWW-Authenticate") == "" {
+		t.Fatalf("401 without WWW-Authenticate")
+	}
+
 	nl := string([]byte{10})
 	input := strings.Join([]string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`,

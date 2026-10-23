@@ -347,8 +347,14 @@ func Load(source map[string]string) (Config, error) {
 	if cfg.MaxInFlight, err = e.intValue(maxConc, 4); err != nil {
 		return cfg, err
 	}
+	if cfg.MaxInFlight < 1 {
+		return cfg, fmt.Errorf("%s must be a positive integer", maxConc)
+	}
 	if cfg.MaxSessions, err = e.intValue("KOMPUTER_MAX_SESSIONS", 0); err != nil {
 		return cfg, err
+	}
+	if cfg.MaxSessions < 0 {
+		return cfg, fmt.Errorf("KOMPUTER_MAX_SESSIONS must be nonnegative")
 	}
 	if cfg.IdleTimeout, err = e.durationMs("KOMPUTER_IDLE_TIMEOUT_MS", 45*time.Minute); err != nil {
 		return cfg, err
@@ -379,12 +385,18 @@ func Load(source map[string]string) (Config, error) {
 	if cfg.MaxHistoryChars, err = e.intValue("KOMPUTER_MAX_HISTORY_CHARS", 60000); err != nil {
 		return cfg, err
 	}
+	if cfg.MaxHistoryChars < 0 {
+		return cfg, fmt.Errorf("KOMPUTER_MAX_HISTORY_CHARS must be nonnegative")
+	}
 	cfg.NoKeyMode = strings.ToLower(e.get("KOMPUTER_NO_KEY_MODE", "stateless"))
 	cfg.DetectDivergence = !falsy(e["KOMPUTER_DETECT_REGENERATE"])
 	cfg.TaskDetect = !falsy(e["KOMPUTER_TASK_DETECT"])
 	var bodyBytes int
 	if bodyBytes, err = e.intValue("KOMPUTER_MAX_BODY_BYTES", 50_000_000); err != nil {
 		return cfg, err
+	}
+	if bodyBytes < 1024 {
+		return cfg, fmt.Errorf("KOMPUTER_MAX_BODY_BYTES must be at least 1024")
 	}
 	cfg.MaxBodyBytes = int64(bodyBytes)
 	if cfg.TurnCache, err = e.durationMs("KOMPUTER_TURN_CACHE_MS", 10*time.Minute); err != nil {
@@ -401,6 +413,9 @@ func Load(source map[string]string) (Config, error) {
 	}
 	if cfg.MaxConnections, err = e.intValue("KOMPUTER_MAX_CONNECTIONS", 512); err != nil {
 		return cfg, err
+	}
+	if cfg.MaxConnections < 1 {
+		return cfg, fmt.Errorf("KOMPUTER_MAX_CONNECTIONS must be a positive integer")
 	}
 	if cfg.ClientToolTimeout, err = e.durationMs("KOMPUTER_CLIENT_TOOL_TIMEOUT_MS", 300*time.Second); err != nil {
 		return cfg, err
@@ -433,9 +448,8 @@ func Load(source map[string]string) (Config, error) {
 	if (cfg.TLSCertFile == "") != (cfg.TLSKeyFile == "") {
 		return cfg, fmt.Errorf("configure both KOMPUTER_TLS_CERT_FILE and KOMPUTER_TLS_KEY_FILE")
 	}
-	if cfg.TLSKeyPassphrase != "" {
-		return cfg, fmt.Errorf("KOMPUTER_TLS_KEY_PASSPHRASE is not yet supported by the Go rewrite")
-	}
+	// Checked by the API when it loads the pair, so a wrong passphrase fails
+	// with the TLS error rather than only at handshake time.
 	cfg.AllowInsecureHTTP = truthy(e["KOMPUTER_ALLOW_INSECURE_HTTP"])
 	cfg.CORSOrigins = map[string]bool{}
 	for _, origin := range list(e.get("KOMPUTER_CORS_ORIGINS", ""), "") {

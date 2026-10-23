@@ -100,6 +100,9 @@ func NewServer(cfg config.Config) (*Server, error) {
 		Logf: s.logf,
 	}
 	s.tunnel = &tunnelGuard{server: s}
+	if err := ensureMCPConfig(&cfg); err != nil {
+		return nil, err
+	}
 	s.harness = harness.NewGateway(s.runHarnessCLI, slotLease{server: s})
 	s.harness.Timeout = cfg.ClientToolTimeout
 	s.harness.Cache = cfg.TurnCache

@@ -87,8 +87,14 @@ HTTP 模式下 token 也可以写在路径里（`http://主机:端口/mcp/<token
 
 ## 远端怎么连接
 
-默认只监听本机。按 [安装步骤](../SETUP.md) 建立 SSH 隧道后，远端 MCP 地址是
-`http://127.0.0.1:18787/mcp`，配置如下：
+默认只监听本机（`127.0.0.1`），别的机器连不进来。两种接法：
+
+**虚拟内网（推荐）**：两台机器加入同一个 Tailscale / ZeroTier / WireGuard 网络，把 `host` 改成内网地址
+（或设 `KLOUD_KODE_BODY_HOST`），远端填 `KOMPUTER_BODY_URL=http://<内网地址>:8787/mcp/<token>`。
+不需要 SSH，也不需要开公网端口。
+
+**SSH 隧道**：保持只监听本机，按 [安装步骤](../SETUP.md) 建立隧道后，远端 MCP 地址是
+`http://127.0.0.1:18787/mcp`。隧道方式的配置如下：
 
 ```json
 {

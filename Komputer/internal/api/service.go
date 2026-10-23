@@ -282,6 +282,14 @@ const tunnelOKCache = 15 * time.Second
 
 func (g *tunnelGuard) ensure() error {
 	cfg := g.server.cfg
+	// A direct Body URL is reachable on its own: probe it, and only treat a
+	// failure as an outage. No SSH is involved, so there is nothing to revive.
+	if cfg.BodyURL != "" {
+		if err := g.probeDirect(); err != nil {
+			return err
+		}
+		return nil
+	}
 	if cfg.SkipTunnel {
 		return nil
 	}
@@ -304,6 +312,38 @@ func (g *tunnelGuard) ensure() error {
 	g.okAt = time.Now()
 	g.failErr = nil
 	return nil
+}
+
+// probeDirect checks the Body at its configured address, caching success and
+// failure so one dead Body does not cost a request every call.
+func (g *tunnelGuard) probeDirect() error {
+	cfg := g.server.cfg
+	now := time.Now()
+	if !g.okAt.IsZero() && now.Sub(g.okAt) < tunnelOKCache {
+		return nil
+	}
+	if g.failErr != nil && now.Sub(g.failAt) < cfg.TunnelFailCache {
+		return g.failErr
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2500*time.Millisecond)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.BodyProbe, nil)
+	if err == nil {
+		var resp *http.Response
+		if resp, err = http.DefaultClient.Do(req); err == nil {
+			resp.Body.Close()
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				g.okAt = time.Now()
+				g.failErr = nil
+				return nil
+			}
+			err = fmt.Errorf("body health returned HTTP %d at %s", resp.StatusCode, cfg.BodyProbe)
+		}
+	}
+	g.okAt = time.Time{}
+	g.failAt = time.Now()
+	g.failErr = err
+	return err
 }
 
 func (g *tunnelGuard) probeLocked() error {
@@ -355,13 +395,16 @@ func (g *tunnelGuard) status() (*bool, *string) {
 	now := time.Now()
 	var ok *bool
 	var at *string
+	// A directly probed Body reports its latest result even after the failure
+	// cache expires, because health impacts an operator's reading not a turn.
+	direct := g.server.cfg.BodyURL != ""
 	switch {
-	case g.failErr != nil && now.Sub(g.failAt) < g.server.cfg.TunnelFailCache:
+	case g.failErr != nil && (direct || now.Sub(g.failAt) < g.server.cfg.TunnelFailCache):
 		f := false
 		ok = &f
 		s := session.NowISO(g.failAt)
 		at = &s
-	case !g.okAt.IsZero() && now.Sub(g.okAt) < tunnelOKCache:
+	case !g.okAt.IsZero() && (direct || now.Sub(g.okAt) < tunnelOKCache):
 		t := true
 		ok = &t
 		s := session.NowISO(g.okAt)

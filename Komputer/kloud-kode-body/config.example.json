@@ -1,6 +1,7 @@
 {
   "port": 8787,
   "host": "127.0.0.1",
+  "_comment": "set host to your Tailscale/WireGuard address (or KLOUD_KODE_BODY_HOST) so another machine can reach it",
   "token": "REPLACE-WITH-64-HEX-CHARS",
   "roots": {
     "home": "~"

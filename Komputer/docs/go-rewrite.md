@@ -57,6 +57,11 @@ stay at the edge. None of them is allowed to become the internal model.
   `GET /healthz`.
 - API key loading from the existing KEYS.txt formats, constant-time
   comparison, failed-auth delay and per-address limiter.
+- Body transport over a private network: `KOMPUTER_BODY_URL` points the API at
+  the Body's MCP endpoint directly, skips the SSH tunnel, probes the Body for
+  health, reports `body_direct` / `body_ok` (token masked) and generates the
+  MCP config file from that URL. The Body can bind a private-network address
+  through `host` / `KLOUD_KODE_BODY_HOST` and warns when it only binds loopback.
 - Body health probe / tunnel revive, TLS listener support, exact-origin CORS,
   SIGHUP key reload (old keys kept on failure) and the connection cap.
 - Existing sessions.json files load; Claude records keep their on-disk shape.

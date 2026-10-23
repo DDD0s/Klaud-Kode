@@ -14,11 +14,13 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/backend"
@@ -40,6 +42,7 @@ type Server struct {
 	runner   *runner.Runner
 	logger   *log.Logger
 
+	keysMu       sync.RWMutex
 	keyDigests   [][]byte
 	authFailures atomic.Int64
 	limiter      *authLimiter
@@ -175,7 +178,9 @@ func (s *Server) loadKeys() error {
 	if weak > 0 {
 		s.logf("WARNING: %d API key(s) shorter than 32 chars — regenerate with: openssl rand -hex 32", weak)
 	}
+	s.keysMu.Lock()
 	s.keyDigests = digests
+	s.keysMu.Unlock()
 	s.logf("loaded %d API key(s) from %s", len(digests), s.cfg.KeysFile)
 	return nil
 }
@@ -196,8 +201,11 @@ func (s *Server) validKey(key string) bool {
 		return false
 	}
 	sum := sha256.Sum256([]byte(key))
+	s.keysMu.RLock()
+	digests := s.keyDigests
+	s.keysMu.RUnlock()
 	ok := false
-	for _, digest := range s.keyDigests {
+	for _, digest := range digests {
 		if subtle.ConstantTimeCompare(digest, sum[:]) == 1 {
 			ok = true
 		}
@@ -474,13 +482,15 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	errCh := make(chan error, len(s.cfg.Listen))
 	servers := make([]*http.Server, 0, len(s.cfg.Listen))
 	for _, addr := range s.cfg.Listen {
-		ln, err := net.Listen("tcp", addr.String())
+		raw, err := net.Listen("tcp", addr.String())
 		if err != nil {
 			return err
 		}
+		ln := &limitedListener{Listener: raw, max: s.cfg.MaxConnections}
 		srv := &http.Server{
 			Handler:           s.Handler(),
 			ReadHeaderTimeout: 15 * time.Second,
+			ReadTimeout:       30 * time.Second,
 			IdleTimeout:       120 * time.Second,
 			TLSConfig:         tlsConfig,
 		}
@@ -504,6 +514,23 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	}
 	s.logf("models=%s max_in_flight=%d max_sessions=%s builtin_tools=%q no_key_mode=%s",
 		strings.Join(s.backends.IDs(), ","), s.cfg.MaxInFlight, maxSessionsLabel(s.cfg.MaxSessions), s.cfg.BuiltinTools, s.cfg.NoKeyMode)
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	defer signal.Stop(hup)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-hup:
+				if err := s.loadKeys(); err != nil {
+					s.logf("key reload failed, keeping old keys: %v", err)
+				} else {
+					s.logf("reloaded API keys")
+				}
+			}
+		}
+	}()
 	select {
 	case <-ctx.Done():
 		s.harness.Close()
@@ -621,6 +648,41 @@ func (b *requestBody) Messages() ([]domain.Message, error) {
 		messages = append(messages, domain.Message{Role: rawString(obj["role"]), Content: obj["content"]})
 	}
 	return messages, nil
+}
+
+// limitedListener caps concurrent connections the way the JavaScript
+// server's maxConnections does: excess connections are closed immediately.
+type limitedListener struct {
+	net.Listener
+	max     int
+	current atomic.Int64
+}
+
+func (l *limitedListener) Accept() (net.Conn, error) {
+	for {
+		conn, err := l.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+		if l.max > 0 && l.current.Add(1) > int64(l.max) {
+			l.current.Add(-1)
+			_ = conn.Close()
+			continue
+		}
+		return &countedConn{Conn: conn, release: func() { l.current.Add(-1) }}, nil
+	}
+}
+
+type countedConn struct {
+	net.Conn
+	once    sync.Once
+	release func()
+}
+
+func (c *countedConn) Close() error {
+	err := c.Conn.Close()
+	c.once.Do(c.release)
+	return err
 }
 
 func isHex32(s string) bool {

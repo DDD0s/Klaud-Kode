@@ -48,7 +48,8 @@ stay at the edge. None of them is allowed to become the internal model.
   `GET /healthz`.
 - API key loading from the existing KEYS.txt formats, constant-time
   comparison, failed-auth delay and per-address limiter.
-- Body health probe / tunnel revive, TLS listener support, exact-origin CORS.
+- Body health probe / tunnel revive, TLS listener support, exact-origin CORS,
+  SIGHUP key reload (old keys kept on failure) and the connection cap.
 - Existing sessions.json files load; Claude records keep their on-disk shape.
 - The Body itself: the same config file, HTTP and stdio MCP transports,
   token auth, health endpoint, roots, files, sync commands, long-lived
@@ -64,10 +65,6 @@ stay at the edge. None of them is allowed to become the internal model.
   waiting, exact-batch result validation, identical-retry replay,
   continuation conflict checks, output limits, explicit run cancellation
   (`DELETE /v1/tool-runs/:id`) and health stats.
-
-Explicitly not implemented yet (requests fail with 501 where applicable):
-
-- Key reload on SIGHUP and the connection cap
 
 ## Validation so far
 

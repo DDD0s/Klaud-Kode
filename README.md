@@ -26,6 +26,9 @@ EMURATED...
 
 ## 做到哪了
 
+API 和 Body 已经用 Go 重写成单个二进制 `kloud-kode`（`api` / `body` / `bridge` / `hook` / `shim` 子命令），部署默认运行它；
+仓库里保留的 JavaScript 实现可以用 `KOMPUTER_IMPL=node` 回退，两种实现共用同一份配置和数据文件。
+
 API 已支持 Chat Completions、Messages 和 Responses 三种请求格式，包括流式回复、客户端工具调用和结果回传。
 除 Claude Code 外，还可以按模型名把请求交给 Antigravity（`agy`）或 Muse Code（`muse`）。
 每个回合都启动真实的官方 CLI，不模拟它们的协议，见 [CLI 后端](Komputer/docs/backends.md)。
@@ -38,7 +41,7 @@ Body 提供文件读写、搜索、命令执行、长进程管理，也能连接
 - 云端环境泄露。内置工具默认关闭，但 Claude Code 自带的提示和配置仍可能带入云端信息。
 - 重启后的任务恢复。harness 的未完成工具调用存在内存里，服务重启后不能原地续上。
 
-Linux CI 在 Node.js 22 和 24 上运行 API、Body 和 HTTPS 测试。API 测试用替身 CLI，
+CI 在 Linux 上运行 Go 测试（含 race）、在 Windows 上运行 Go 测试，另外跑 Node.js 22 和 24 上的 JavaScript 实现作为行为对照。API 测试用替身 CLI，
 不消耗模型额度；公网域名、真实 Claude、登录后的 agy / muse 和具体 harness 的完整联调还没完成。
 
 ## 用之前看一下
@@ -54,7 +57,7 @@ Body 的 `roots` 只限制文件工具，不能把 shell 命令关在指定目�
 
 这个项目最初是为自己用的。现在公开，是想请大家帮忙看代码、找问题，或者试试还有什么更简单的做法。
 
-遇到问题可以提 [Issue](https://github.com/DDD0s/Kloud-Kode/issues)，最好带上系统、Node.js 和 Claude Code 版本、
+遇到问题可以提 [Issue](https://github.com/DDD0s/Kloud-Kode/issues)，最好带上系统、Go 版本和 Claude Code 版本、
 使用的客户端、复现步骤，以及删掉密钥后的日志。修小问题可以直接提 PR；改架构的话，先开个 Issue 聊聊。
 安装文档里哪一步看不懂、照着做没成功，也值得报。
 

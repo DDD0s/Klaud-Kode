@@ -317,7 +317,13 @@ func Load(source map[string]string) (Config, error) {
 	sum := sha256.Sum256([]byte(absSession))
 	cfg.InstanceID = hex.EncodeToString(sum[:])[:16]
 	home, _ := os.UserHomeDir()
-	cfg.WorkspaceRoot = filepath.Join(home, ".komputer", "workspaces")
+	// Work directories live outside the checkout so the model cannot read the
+	// repository by accident. Point this elsewhere on hosts where the home
+	// directory is protected (for example /srv/komputer-work on Linux).
+	cfg.WorkspaceRoot = e.get("KOMPUTER_WORKSPACE_ROOT", filepath.Join(home, ".komputer", "workspaces"))
+	if abs, err := filepath.Abs(cfg.WorkspaceRoot); err == nil {
+		cfg.WorkspaceRoot = abs
+	}
 	claudeCwd, _ := filepath.Abs(e.get("KOMPUTER_CLAUDE_CWD", filepath.Join(cfg.WorkspaceRoot, cfg.InstanceID)))
 	cfg.TunnelUp = e.get("KOMPUTER_TUNNEL_UP", filepath.Join(cfg.RepoRoot, "komputer", "tunnel-up.sh"))
 	cfg.HealthURL = e.get("KOMPUTER_HEALTH_URL", "http://127.0.0.1:18787/healthz")

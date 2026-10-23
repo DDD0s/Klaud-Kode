@@ -62,6 +62,8 @@ func NewServer(cfg config.Config) (*Server, error) {
 			backendList = append(backendList, backend.NewClaude(cfg.Claude))
 		case "muse":
 			backendList = append(backendList, backend.NewMuse(cfg.Muse))
+		case "antigravity":
+			backendList = append(backendList, backend.NewAntigravity(cfg.Antigravity))
 		default:
 			return nil, fmt.Errorf("backend %q is not yet implemented in the Go rewrite", name)
 		}
@@ -78,6 +80,11 @@ func NewServer(cfg config.Config) (*Server, error) {
 		slots:    make(chan struct{}, cfg.MaxInFlight),
 		locks:    newKeyLocks(),
 		turns:    newTurnRegistry(cfg.TurnCache),
+	}
+	for _, b := range registry.List {
+		if agy, ok := b.(*backend.Antigravity); ok {
+			agy.SetLogf(s.logf)
+		}
 	}
 	s.store = session.New(cfg.SessionsFile, cfg.MaxSessions, cfg.IdleTimeout)
 	s.store.Logf = s.logf
@@ -113,6 +120,12 @@ func NewServer(cfg config.Config) (*Server, error) {
 	for _, b := range registry.List {
 		if err := os.MkdirAll(b.Cwd(), 0o755); err != nil {
 			return nil, err
+		}
+		for _, note := range b.Init() {
+			s.logf("%s setup: %s", b.Name(), note)
+		}
+		for _, note := range b.Checks(cfg.Home) {
+			s.logf("WARNING: %s", note)
 		}
 	}
 	return s, nil

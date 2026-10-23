@@ -1,0 +1,9 @@
+package backend
+
+import "os/exec"
+
+func termProcess(cmd *exec.Cmd) {
+	if cmd != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+}

@@ -183,6 +183,11 @@ func marshalRaw(v any) json.RawMessage {
 }
 
 // Classify maps a Claude failure message to a public error type.
+func (c *Claude) Init() []string { return nil }
+
+// Checks reports nothing: this backend has no global setup to converge.
+func (c *Claude) Checks(string) []string { return nil }
+
 func (c *Claude) Classify(message string) string {
 	if missingSessionTail.MatchString(message) {
 		return "session_not_found"

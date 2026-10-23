@@ -25,6 +25,10 @@ type fixture struct {
 func newFixture(t *testing.T) fixture { return newFixtureEnv(t, nil) }
 
 func newFixtureEnv(t *testing.T, extra map[string]string) fixture {
+	return newFixtureSetup(t, extra, nil)
+}
+
+func newFixtureSetup(t *testing.T, extra map[string]string, setup func(root, sessionDir string)) fixture {
 	t.Helper()
 	root := t.TempDir()
 	state := filepath.Join(root, "fake-state")
@@ -58,6 +62,7 @@ func newFixtureEnv(t *testing.T, extra map[string]string) fixture {
 		"CLAUDE_BIN":                  fake,
 		"FAKE_CLAUDE_STATE":           state,
 		"FAKE_MUSE_STATE":             state,
+		"FAKE_AGY_STATE":              state,
 		"HOME":                        root,
 		"USERPROFILE":                 root,
 		"CUSTOM_SECRET":               "must-not-leak",
@@ -66,6 +71,9 @@ func newFixtureEnv(t *testing.T, extra map[string]string) fixture {
 	}
 	for k, v := range extra {
 		env[k] = v
+	}
+	if setup != nil {
+		setup(root, sessionDir)
 	}
 	cfg, err := config.Load(env)
 	if err != nil {

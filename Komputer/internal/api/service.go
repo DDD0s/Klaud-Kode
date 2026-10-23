@@ -32,6 +32,7 @@ type plan struct {
 
 func effortInput(rb *requestBody) backend.EffortInput {
 	in := backend.EffortInput{
+		Model:           rb.Model,
 		ReasoningEffort: rb.String("reasoning_effort"),
 		Effort:          rb.String("effort"),
 	}

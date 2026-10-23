@@ -101,14 +101,20 @@ func (r *Runner) Run(ctx context.Context, b backend.Backend, turn backend.Turn, 
 	}
 	var bailMu sync.Mutex
 	var bailFailure *backend.Failure
-	parser := b.NewParser(turn.Session, sink, func(f *backend.Failure) {
+	bailFn := func(f *backend.Failure) {
 		bailMu.Lock()
 		if bailFailure == nil {
 			bailFailure = f
 		}
 		bailMu.Unlock()
 		terminateProcess(cmd)
-	})
+	}
+	var parser backend.Parser
+	if prepared.ParserFactory != nil {
+		parser = prepared.ParserFactory(sink, bailFn)
+	} else {
+		parser = b.NewParser(turn.Session, sink, bailFn)
+	}
 
 	if err := cmd.Start(); err != nil {
 		return domain.Output{}, &backend.Failure{Message: err.Error(), Activity: parser.Activity()}

@@ -26,6 +26,7 @@ type SessionRef struct {
 
 // EffortInput carries the effort hints a client request may express.
 type EffortInput struct {
+	Model           string
 	ReasoningEffort string
 	Effort          string
 	OutputEffort    string
@@ -62,21 +63,22 @@ type Turn struct {
 
 // MCPServerSpec is one MCP server the CLI should reach.
 type MCPServerSpec struct {
-	Name    string
-	URL     string
-	Headers map[string]string
-	Command string
-	Args    []string
-	Env     map[string]string
+	Name    string            `json:"name"`
+	URL     string            `json:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Command string            `json:"command,omitempty"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
 }
-
-// Prepared is a rendered CLI invocation.
 type Prepared struct {
-	Args     []string
-	Stdin    string
-	Cwd      string
-	ExtraEnv map[string]string
-	Cleanup  func()
+	// ParserFactory, when set, overrides Backend.NewParser so a prepared
+	// turn can carry per-run parser state (policies, guards).
+	ParserFactory func(sink domain.Sink, bail func(*Failure)) Parser
+	Args          []string
+	Stdin         string
+	Cwd           string
+	ExtraEnv      map[string]string
+	Cleanup       func()
 }
 
 // Failure is a backend run failure before HTTP classification.
@@ -114,4 +116,6 @@ type Backend interface {
 	NewParser(session SessionRef, sink domain.Sink, bail func(*Failure)) Parser
 	Owns(id string) bool
 	Classify(message string) string
+	Init() []string
+	Checks(home string) []string
 }

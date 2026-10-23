@@ -24,7 +24,6 @@ type ListenAddress struct {
 
 func (a ListenAddress) String() string { return net.JoinHostPort(a.Host, strconv.Itoa(a.Port)) }
 
-// Claude holds the Claude Code backend settings.
 // Muse holds the Muse Code backend settings.
 type Muse struct {
 	Bin           string
@@ -38,6 +37,33 @@ type Muse struct {
 	ExtraArgs     []string
 }
 
+type Antigravity struct {
+	Bin           string
+	Cwd           string
+	MCPConfig     string
+	ModelID       string
+	Models        []string
+	DefaultModel  string
+	DefaultEffort string
+	Efforts       []string
+	TaskModel     string
+	ExtraArgs     []string
+	Permissions   string
+	RemoteTools   string
+	RemoteShell   string
+	RemoteMount   string
+	Guard         string
+	MCPSetup      string
+	Python        string
+	BodyMCP       string
+	Home          string
+	SelfExe       string
+	NodeBin       string
+	SourceEnv     map[string]string
+	Logf          func(string, ...any)
+}
+
+// Claude holds the Claude Code backend settings.
 type Claude struct {
 	Bin              string
 	Cwd              string
@@ -108,8 +134,10 @@ type Config struct {
 	NodeBin        string
 	Backends       []string
 	DefaultBackend string
+	Home           string
 	Claude         Claude
 	Muse           Muse
+	Antigravity    Antigravity
 }
 
 func truthy(v string) bool {
@@ -255,9 +283,6 @@ func Load(source map[string]string) (Config, error) {
 		name, ok := backendAliases[strings.ToLower(n)]
 		if !ok {
 			return cfg, fmt.Errorf("KOMPUTER_BACKENDS: unknown backend %q (use claude, antigravity, muse)", n)
-		}
-		if name == "antigravity" {
-			return cfg, fmt.Errorf("backend %q is not yet implemented in the Go rewrite", name)
 		}
 		if !seen[name] {
 			seen[name] = true
@@ -439,5 +464,67 @@ func Load(source map[string]string) (Config, error) {
 		TaskModel:     e.getSet("KOMPUTER_MUSE_TASK_MODEL", ""),
 		ExtraArgs:     strings.Fields(e.get("KOMPUTER_MUSE_EXTRA_ARGS", "")),
 	}
+	// The home AGY reads and writes follows the service process environment,
+	// so tests that give the service a private HOME stay inside it.
+	cfg.Home = source["USERPROFILE"]
+	if cfg.Home == "" {
+		cfg.Home = source["HOME"]
+	}
+	if cfg.Home == "" {
+		cfg.Home, _ = os.UserHomeDir()
+	}
+	selfExe := e.get("KLOUD_KODE_BIN", "")
+	if selfExe == "" {
+		selfExe, _ = os.Executable()
+	}
+	agyCwd, _ := filepath.Abs(e.get("KOMPUTER_AGY_CWD", filepath.Join(cfg.WorkspaceRoot, cfg.InstanceID+"-agy")))
+	remoteMount, _ := filepath.Abs(e.get("KOMPUTER_AGY_REMOTE_MOUNT", filepath.Join(agyCwd, "remote")))
+	cfg.Antigravity = Antigravity{
+		Bin:         e.get("AGY_BIN", "agy"),
+		Cwd:         agyCwd,
+		MCPConfig:   cfg.MCPConfig,
+		ModelID:     e.get("KOMPUTER_AGY_MODEL_ID", "komputer-agy"),
+		Models:      agyModels(e),
+		TaskModel:   e.getSet("KOMPUTER_AGY_TASK_MODEL", "gemini-3.8-flash-low"),
+		ExtraArgs:   strings.Fields(e.get("KOMPUTER_AGY_EXTRA_ARGS", "")),
+		Permissions: strings.ToLower(e.getSet("KOMPUTER_AGY_PERMISSIONS", "settings")),
+		RemoteTools: strings.ToLower(e.getSet("KOMPUTER_AGY_REMOTE_TOOLS", "off")),
+		RemoteShell: e.get("KOMPUTER_AGY_REMOTE_SHELL", ""),
+		RemoteMount: remoteMount,
+		Guard:       strings.ToLower(e.getSet("KOMPUTER_AGY_BUILTIN_GUARD", "warn")),
+		MCPSetup:    strings.ToLower(e.getSet("KOMPUTER_AGY_MCP_SETUP", "auto")),
+		Python:      e.get("KOMPUTER_AGY_PYTHON", "python3"),
+		BodyMCP:     cfg.BodyMCP,
+		Home:        cfg.Home,
+		SelfExe:     selfExe,
+		NodeBin:     cfg.NodeBin,
+		SourceEnv:   source,
+	}
+	for _, check := range []struct {
+		name, value string
+		allowed     []string
+	}{
+		{"KOMPUTER_AGY_PERMISSIONS", cfg.Antigravity.Permissions, []string{"settings", "skip"}},
+		{"KOMPUTER_AGY_MCP_SETUP", cfg.Antigravity.MCPSetup, []string{"auto", "off"}},
+		{"KOMPUTER_AGY_BUILTIN_GUARD", cfg.Antigravity.Guard, []string{"stop", "warn", "off"}},
+		{"KOMPUTER_AGY_REMOTE_TOOLS", cfg.Antigravity.RemoteTools, []string{"auto", "all", "commands", "off"}},
+	} {
+		allowed := false
+		for _, value := range check.allowed {
+			if check.value == value {
+				allowed = true
+			}
+		}
+		if !allowed {
+			return cfg, fmt.Errorf("%s must be %s", check.name, strings.Join(check.allowed, ", "))
+		}
+	}
 	return cfg, nil
+}
+
+func agyModels(e envMap) []string {
+	if _, ok := e["KOMPUTER_AGY_MODELS"]; !ok {
+		return []string{"komputer-gemini-4-argon", "komputer-gemini-3.8-flash"}
+	}
+	return list(e.get("KOMPUTER_AGY_MODELS", ""), "")
 }

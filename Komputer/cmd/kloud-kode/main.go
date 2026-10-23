@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/api"
+	"github.com/DDD0s/Kloud-Kode/Komputer/internal/backend"
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/body"
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/childenv"
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/config"
@@ -20,7 +21,7 @@ import (
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: kloud-kode <api|body|bridge|hook|shim>")
-	fmt.Fprintln(os.Stderr, "this Go rewrite slice implements: api, body")
+	fmt.Fprintln(os.Stderr, "this Go rewrite slice implements: api, body, bridge, hook, shim")
 }
 
 func main() {
@@ -54,8 +55,24 @@ func run(args []string) error {
 			mode = args[1]
 		}
 		return runBody(mode)
-	case "bridge", "hook", "shim":
-		return fmt.Errorf("the %q subcommand is not yet implemented in the Go rewrite", command)
+	case "bridge":
+		name := "komputer_use"
+		if len(args) > 1 {
+			name = args[1]
+		}
+		backend.RunAGYBridge(context.Background(), name, os.Stdin, os.Stdout, os.Getenv)
+		return nil
+	case "hook":
+		home, _ := os.UserHomeDir()
+		if v := os.Getenv("USERPROFILE"); v != "" {
+			home = v
+		}
+		os.Exit(backend.RunAGYHook(os.Stdin, os.Stdout, os.Getenv, home))
+		return nil
+	case "shim":
+		cwd, _ := os.Getwd()
+		os.Exit(backend.RunAGYShim(context.Background(), args[1:], os.Stdout, os.Stderr, os.Getenv, cwd))
+		return nil
 	default:
 		usage()
 		return fmt.Errorf("unknown subcommand %q", command)

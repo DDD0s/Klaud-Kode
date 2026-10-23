@@ -27,16 +27,23 @@ stay at the edge. None of them is allowed to become the internal model.
 
 ## Implemented so far
 
-- Claude and Muse backends behind one registry (exact advertised ids,
-  then backend patterns). Muse covers argv and prompt files, JSONL parsing
-  with missing-session bail, usage, env-interpolated MCP `-c` overrides,
-  base64 images, inline-system session hashing and error classification.
-- Claude exact argv shape, stream-json parser, child
-  environment allowlist, appended system prompt file, attachments via
+- Claude, Muse and Antigravity backends behind one registry (exact
+  advertised ids, then backend patterns). Muse covers argv and prompt
+  files, JSONL parsing with missing-session bail, usage, env-interpolated
+  MCP `-c` overrides, base64 images, inline-system session hashing and
+  error classification. Antigravity covers stream-json turns with
+  conversation resume and missing-conversation bail, the globally
+  registered stdio bridge and PreToolUse hook (`bridge` / `hook`
+  subcommands), island and remote tool policies, the workspace bash shim
+  (`shim`) that runs `run_command` on the caller's computer, and the
+  optional FUSE mount of the caller's files (embedded Python helper).
+- Claude exact argv shape, stream-json parser, child environment
+  allowlist, appended system prompt file, attachments via
   `--input-format stream-json`.
-  streaming (deferred SSE) and non-streaming, stateless, task and session
-  turns, divergence reseeding, missing-session recovery, duplicate-turn
-  attach/replay, global in-flight cap and per-session serialization.
+- Chat Completions and Anthropic Messages: streaming (deferred SSE) and
+  non-streaming, stateless, task and session turns, divergence reseeding,
+  missing-session recovery, duplicate-turn attach/replay, global in-flight
+  cap and per-session serialization.
 - `GET /v1/models`, `/v1/sessions` CRUD subset, `POST /v1/messages/count_tokens`,
   `GET /healthz`.
 - API key loading from the existing KEYS.txt formats, constant-time
@@ -60,7 +67,6 @@ stay at the edge. None of them is allowed to become the internal model.
 
 Explicitly not implemented yet (requests fail with 501 where applicable):
 
-- The Antigravity backend, all agy helper processes, FUSE
 - Key reload on SIGHUP and the connection cap
 
 ## Validation so far
@@ -71,9 +77,11 @@ Explicitly not implemented yet (requests fail with 501 where applicable):
   Messages, auth rejection, child-env non-leakage, plus OpenAI and Anthropic
   harness tool cycles that continue the same fake-Claude process, Muse
   session create/resume and missing-session reseeding, images and errors, an
-  explicit tool-run cancellation, and Responses non-streaming/streaming,
+  explicit tool-run cancellation, Responses non-streaming/streaming,
   previous-response session resume, function tools through the harness,
-  image-store privacy and delete.
+  image-store privacy and delete, and Antigravity session create/resume
+  through the real Go bridge process plus client tools on one continuing
+  fake-agy process.
 - `go vet ./...` passes for the host and with `GOOS=linux`.
 - Linux and Windows binaries cross-compile (about 12 MB each).
 - Fake-CLI results only. No signed-in CLI or production deployment has run
@@ -81,7 +89,6 @@ Explicitly not implemented yet (requests fail with 501 where applicable):
 
 ## Next slices
 
-1. The Antigravity backend, including its helper subcommands.
-2. Caller-environment binding and the model-visible leak gate from
+1. Caller-environment binding and the model-visible leak gate from
    `docs/REMOTE-BRAIN-DESIGN.md`, then a real signed-in acceptance run.
-3. Deployment switch with the JavaScript build kept as the rollback.
+2. Deployment switch with the JavaScript build kept as the rollback.

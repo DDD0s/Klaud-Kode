@@ -272,6 +272,11 @@ func decodeBase64(s string) ([]byte, error) {
 }
 
 // Classify maps a Muse failure message to a public error type.
+func (m *Muse) Init() []string { return nil }
+
+// Checks reports nothing: this backend has no global setup to converge.
+func (m *Muse) Checks(string) []string { return nil }
+
 func (m *Muse) Classify(message string) string {
 	switch {
 	case museAuthPattern.MatchString(message):

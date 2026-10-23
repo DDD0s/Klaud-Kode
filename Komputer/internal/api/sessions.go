@@ -142,7 +142,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"builtin_tools": s.cfg.BuiltinTools, "no_key_mode": s.cfg.NoKeyMode, "listen": listen,
 		"body_probe_skipped": s.cfg.SkipTunnel,
 		"client_tools":       s.harness.Stats(),
-		"implementation":     "go-rewrite-slice-5",
+		"implementation":     "go-rewrite-slice-6",
 	}
 	if s.cfg.SkipTunnel {
 		body["body_ok"] = nil

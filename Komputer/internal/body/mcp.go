@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -126,14 +127,24 @@ func (s *Service) handleRPCMessage(ctx context.Context, raw []byte) (map[string]
 	return rpcResult(msg.ID, result), false, true
 }
 
-func authorized(r *http.Request, token string) bool {
-	values := r.Header.Values("Authorization")
-	if len(values) != 1 {
+var (
+	mcpPathPattern = regexp.MustCompile("^/mcp(?:/([A-Za-z0-9_-]+))?$")
+	bearerPattern  = regexp.MustCompile("(?i)^Bearer\\s+(.+)$")
+)
+
+func tokenMatches(supplied, token string) bool {
+	if supplied == "" || token == "" {
 		return false
 	}
-	want := "Bearer " + token
-	got := values[0]
-	return len(got) == len(want) && subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
+	return len(supplied) == len(token) && subtle.ConstantTimeCompare([]byte(supplied), []byte(token)) == 1
+}
+
+// maskToken keeps the token out of logs and error bodies.
+func maskToken(p string) string {
+	if i := strings.LastIndex(p, "/"); i > 0 && i < len(p)-1 {
+		return p[:i] + "/…"
+	}
+	return p
 }
 
 func socketAddress(r *http.Request) string {
@@ -158,14 +169,25 @@ func (s *Service) Handler() http.Handler {
 			writeMCPJSON(w, http.StatusOK, map[string]any{"ok": true, "service": "kloud-kode-body", "version": Version})
 			return
 		}
-		if !authorized(r, s.cfg.Token) {
-			s.logf("auth failed from %s %s %s", socketAddress(r), r.Method, path)
-			time.Sleep(1000 * time.Millisecond)
-			writeMCPJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
+		// The token may travel in the path, because some MCP clients
+		// configure a bare URL with no way to add a header.
+		match := mcpPathPattern.FindStringSubmatch(path)
+		if match == nil {
+			writeMCPJSON(w, http.StatusNotFound, map[string]any{"error": fmt.Sprintf("not found: %s %s", r.Method, maskToken(path))})
 			return
 		}
-		if path != "/mcp" {
-			writeMCPJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+		supplied := match[1]
+		if supplied == "" {
+			if values := r.Header.Values("Authorization"); len(values) == 1 {
+				if bearer := bearerPattern.FindStringSubmatch(values[0]); bearer != nil {
+					supplied = strings.TrimSpace(bearer[1])
+				}
+			}
+		}
+		if !tokenMatches(supplied, s.cfg.Token) {
+			s.logf("auth failed from %s %s %s", socketAddress(r), r.Method, maskToken(path))
+			time.Sleep(1000 * time.Millisecond)
+			writeMCPJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid token"})
 			return
 		}
 		if r.Method != http.MethodPost {

@@ -7,3 +7,11 @@ logs/
 *.tmp
 .codegraph/
 .deploy-prev
+
+# Built from Komputer/cmd/kloud-kode by start.sh (deploy and local runs).
+Komputer/kloud-kode
+Komputer/kloud-kode.exe
+Komputer/komputer-api/kloud-kode
+Komputer/komputer-api/kloud-kode.exe
+Komputer/kloud-kode-body/kloud-kode
+Komputer/kloud-kode-body/kloud-kode.exe

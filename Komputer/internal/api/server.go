@@ -121,8 +121,8 @@ func NewServer(cfg config.Config) (*Server, error) {
 		}
 	}
 	for _, b := range registry.List {
-		if err := os.MkdirAll(b.Cwd(), 0o755); err != nil {
-			return nil, err
+		if err := mkdirWithRetry(b.Cwd()); err != nil {
+			return nil, fmt.Errorf("cannot create the %s work directory: %w (set KOMPUTER_WORKSPACE_ROOT to a writable path if the home directory is protected)", b.Name(), err)
 		}
 		for _, note := range b.Init() {
 			s.logf("%s setup: %s", b.Name(), note)
@@ -132,6 +132,24 @@ func NewServer(cfg config.Config) (*Server, error) {
 		}
 	}
 	return s, nil
+}
+
+// mkdirWithRetry creates a directory, retrying for a few seconds because
+// antivirus and indexing tools on Windows can deny the first writes of an
+// executable whose hash they have not seen before.
+func mkdirWithRetry(dir string) error {
+	var err error
+	delay := 100
+	for attempt := 0; attempt < 10; attempt++ {
+		if err = os.MkdirAll(dir, 0o755); err == nil {
+			return nil
+		}
+		time.Sleep(time.Duration(delay) * time.Millisecond)
+		if delay < 750 {
+			delay += 100
+		}
+	}
+	return err
 }
 
 func (s *Server) logf(format string, args ...any) {

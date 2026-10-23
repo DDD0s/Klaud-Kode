@@ -8,22 +8,24 @@ Body 跑在你想操作的电脑上，提供文件、命令、进程和本机 MC
 
 ## 安装
 
-需要 Git 和 Node.js。代码要求 Node.js 20 以上，当前 CI 使用 22 和 24。
+需要 Git 和 Go 1.27 以上。服务是 `Komputer/cmd/kloud-kode` 编出来的单个二进制，
+启动脚本在第一次运行时自动编译；旧的 JavaScript 实现仍可用 `KOMPUTER_IMPL=node` 回退，那时才需要 Node.js 20 以上。
 在要操作的电脑上打开终端：
 
 ```bash
 git clone https://github.com/DDD0s/Kloud-Kode.git
 cd Kloud-Kode/Komputer/kloud-kode-body
-npm ci --ignore-scripts --no-audit --no-fund
 ```
 
-已有代码就直接进入 `Komputer/kloud-kode-body`。上面三条命令也能在 PowerShell 中逐行执行。
+已有代码就直接进入 `Komputer/kloud-kode-body`。
 
 生成一个随机 token：
 
 ```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+openssl rand -hex 32
 ```
+
+（Windows 没有 `openssl` 时，用 `python -c "import secrets;print(secrets.token_hex(32))"`。）
 
 配置文件默认在用户目录下。第一次安装时，复制模板：
 
@@ -63,15 +65,27 @@ chmod 600 "$HOME/.kloud-kode-body/config.json"
 
 启动：
 
+Linux / macOS：
+
 ```bash
-node server.mjs http
+./start.sh http
 ```
+
+Windows PowerShell：
+
+```powershell
+.\start.ps1 http
+```
+
+两个脚本都会在需要时编译二进制，然后启动 `kloud-kode body http`；
+也可以先 `go build -o kloud-kode ./cmd/kloud-kode`（在 `Komputer/` 目录）再直接运行 `./kloud-kode body http`。
 
 看到监听 `127.0.0.1:8787` 的日志后，保持进程运行。另开终端访问 `http://127.0.0.1:8787/healthz`，
 确认服务能响应。健康检查不需要 token，也不代表 MCP 鉴权已经通过。
 
 可用 `KLOUD_KODE_BODY_CONFIG` 指定其他配置文件，`KLOUD_KODE_BODY_TOKEN` 覆盖配置里的 token。
-`node server.mjs stdio` 提供给同机 MCP 客户端使用，不启动 HTTP 端口。
+`./start.sh stdio`（或 `kloud-kode body stdio`）提供给同机 MCP 客户端使用，不启动 HTTP 端口。
+HTTP 模式下 token 也可以写在路径里（`http://主机:端口/mcp/<token>`），给只能配置 URL、不能加请求头的客户端用。
 
 ## 远端怎么连接
 

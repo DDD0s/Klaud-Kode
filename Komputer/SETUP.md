@@ -8,8 +8,9 @@
 
 ## 准备
 
-远端需要 Git、Bash、curl、Node.js，以及已经登录的官方 Claude Code。
-代码要求 Node.js 20 以上；当前 CI 测试的是 22 和 24，首次安装可以用其中一个版本。
+远端需要 Git、Bash、curl、Go 1.27 以上，以及已经登录的官方 Claude Code。
+服务是 `Komputer/cmd/kloud-kode` 编出来的单个二进制，首次启动时自动编译，之后源码有改动才重编。
+旧的 JavaScript 实现仍留在仓库里，`KOMPUTER_IMPL=node` 可以回退运行它，那时才需要 Node.js 20 以上。
 
 Claude Code 按 [官方安装说明](https://code.claude.com/docs/en/setup) 安装。
 用准备运行服务的普通用户执行下面两条命令，确认能启动并完成登录，不要用 root 跑服务：
@@ -30,9 +31,11 @@ claude
 ```bash
 git clone https://github.com/DDD0s/Kloud-Kode.git
 cd Kloud-Kode/Komputer/komputer-api
-npm ci --ignore-scripts --no-audit --no-fund
 cp env.example env
 ```
+
+`start.sh` 会在第一次启动时用 `go build` 生成 `komputer-api/kloud-kode`。
+Go 不在服务的 PATH 里时，在 `env` 中设置 `GO_BIN` 指向 `go` 的完整路径。
 
 下面的远端命令都在 `komputer-api` 目录执行。已有安装不要直接覆盖 `env`，升级说明见
 [命名迁移](docs/komputer-migration.md)。
@@ -43,7 +46,8 @@ API key 是本地客户端连接这套服务的密码，不是 Claude 登录凭�
 下面生成随机 key，保存到仅当前用户可读写的 `KEYS.txt`；文件已经存在时会报错，不会覆盖旧 key。
 
 ```bash
-node -e "require('fs').writeFileSync('KEYS.txt', 'api-key: ' + require('crypto').randomBytes(32).toString('hex') + '\n', {flag: 'wx', mode: 0o600})"
+openssl rand -hex 32 | sed 's/^/api-key: /' > KEYS.txt
+chmod 600 KEYS.txt
 ```
 
 客户端要填的是文件中 `api-key:` 后面的字符串。不要发到 Issue 或截图里。
@@ -64,6 +68,7 @@ KOMPUTER_TUNNEL_UP=/bin/true
 
 `env` 会被 Bash 读取，带空格的值要加引号。远端需要出网代理才设置 `HTTPS_PROXY`，不需要就留空。
 如果 `claude` 不在服务的 PATH 中，用 `CLAUDE_BIN` 指定它的完整路径。
+模型的工作目录默认在 `~/.komputer/workspaces`；家目录受安全软件保护、或想放到数据盘时，用 `KOMPUTER_WORKSPACE_ROOT` 指定。
 
 启动并检查：
 
@@ -95,6 +100,7 @@ curl -fsS http://127.0.0.1:18888/v1/chat/completions \
 ```
 
 `start.sh` 会放到后台运行，但不是开机自启或崩溃重启服务。首次搭建先手动跑通，再配置进程管理器。
+它默认运行 Go 二进制；需要回退到旧实现时用 `KOMPUTER_IMPL=node ./start.sh`，两条实现共用同一份 `env`、`KEYS.txt`、`sessions.json` 和 `responses.json`。
 
 ## 4. 让本地能连到 API
 

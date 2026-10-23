@@ -288,6 +288,31 @@ func TestBodyMCPHTTPAndStdio(t *testing.T) {
 		t.Fatalf("health status %d", resp.StatusCode)
 	}
 
+	// Some MCP clients can only configure a URL, so the token may travel in
+	// the path instead of a header.
+	postPath := func(path string, body any) (int, []byte) {
+		raw, _ := json.Marshal(body)
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+path, bytes.NewReader(raw))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		data, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, data
+	}
+	ping := map[string]any{"jsonrpc": "2.0", "id": 9, "method": "ping"}
+	if status, data := postPath("/mcp/"+service.cfg.Token, ping); status != 200 || !strings.Contains(string(data), "\"result\"") {
+		t.Fatalf("token path status %d: %s", status, data)
+	}
+	if status, data := postPath("/mcp/wrong-token", ping); status != 401 {
+		t.Fatalf("wrong token path status %d: %s", status, data)
+	}
+	if status, data := postPath("/nope/"+service.cfg.Token, ping); status != 404 || strings.Contains(string(data), service.cfg.Token) {
+		t.Fatalf("unknown path status %d: %s", status, data)
+	}
+
 	nl := string([]byte{10})
 	input := strings.Join([]string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`,

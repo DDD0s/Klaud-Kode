@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Deploy the shared repository's main branch to the brain host.
 #
-#   bash deploy/deploy.sh            # test locally, then the brain pulls origin/main, restarts, verifies
+#   bash deploy/deploy.sh            # test locally, then the brain pulls origin/main, builds, restarts, verifies
 #   bash deploy/deploy.sh rollback   # the brain goes back to the commit it ran before the last deploy
 #
 # The brain host pulls from GitHub itself (it needs read access to the repo),
 # so what runs there is always a real commit, and a rollback is a git reset.
 #
-# Runs from Windows Git Bash or Linux. Needs ssh to the brain to work.
+# Runs from Windows Git Bash or Linux. Needs ssh to the brain to work, and Go
+# on both ends: the brain builds Komputer/cmd/kloud-kode from source.
 # Set KOMPUTER_DEPLOY_HOST / KOMPUTER_REMOTE_DIR, or put them in deploy/target.
 set -euo pipefail
 
@@ -41,8 +42,17 @@ if [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]]; then
 fi
 echo "== deploying $(git log --oneline -1)"
 
-echo "== local tests"
-(cd "$ROOT/komputer-api" && npm test)
+echo "== local tests (Go)"
+(cd "$ROOT/Komputer" && go vet ./... && go test ./...)
 
-echo "== pull, restart, verify on $HOST"
+# The JavaScript implementation stays in the tree as the rollback path, so its
+# suites keep running as the behaviour oracle.
+if command -v npm >/dev/null 2>&1; then
+  echo "== local tests (JavaScript oracle)"
+  (cd "$ROOT/Komputer/komputer-api" && npm test)
+else
+  echo "== skipping the JavaScript oracle: npm not found"
+fi
+
+echo "== pull, build, restart, verify on $HOST"
 "${SSH[@]}" "$HOST" "bash -s" -- "$REMOTE_DIR" < "$ROOT/deploy/remote-swap.sh"

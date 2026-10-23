@@ -53,17 +53,26 @@ SSH 直连 CLI 是可选用法，后台工具隧道则是另外一回事。
 
 在仓库的 `Komputer/` 目录，用 Bash 执行：
 
+在仓库的 `Komputer/` 目录（Go 实现是默认路径）：
+
+```bash
+go vet ./...
+go test ./...
+```
+
+旧的 JavaScript 实现保留为行为对照，改动 Go 后端或协议行为时两套都要跑：
+
 ```bash
 (cd komputer-api && npm ci --ignore-scripts && npm test)
 (cd kloud-kode-body && npm ci --ignore-scripts && npm test)
 ```
 
-PowerShell 下分别进入两个目录，运行相同的 npm 命令。
-API 测试使用替身 Claude、agy 和 muse CLI，但 HTTP、MCP、HTTPS 和进程往返是真实的。
+PowerShell 下同样在 `Komputer/` 目录执行 `go test ./...`，再分别进入两个目录运行 npm 命令。
+Go 测试用替身 Claude、agy 和 muse CLI，但 HTTP、MCP、HTTPS 和进程往返是真实的，Body 部分会启动真实的本机命令和交互进程。
 本机装有真实 agy 或 muse 时，可设置 `KOMPUTER_TEST_REAL_AGY` / `KOMPUTER_TEST_REAL_MUSE` 为其路径跑冒烟测试，默认跳过。
-Body 测试会启动本机服务和测试命令。不需要真实 Claude 登录，不消耗模型额度。
+不需要真实 Claude 登录，不消耗模型额度。
 
-GitHub Actions 在 Linux 的 Node.js 22、24 上运行完整测试。
+GitHub Actions 在 Linux（含 `-race`）和 Windows 上运行 Go 测试，并在 Node.js 22、24 上运行 JavaScript 对照测试。
 本机 HTTPS 检查可能受安全软件替换证书影响，要记录实际失败原因，不能把它报成通过。
 代码中的路径和名称改动还要通过 `test/naming.test.mjs`；文档改动至少检查命令、链接和命名。
 

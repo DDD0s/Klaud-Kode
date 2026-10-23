@@ -1,8 +1,13 @@
 # Go rewrite status
 
-Status: in progress on branch `rewrite/go`. The JavaScript implementation
-remains the default and the behavior oracle until the Go binary passes the
-same contracts slice by slice. Do not switch deployment defaults yet.
+Status: merged in `main` and now the deployment default: `start.sh` builds and
+runs `komputer-api/kloud-kode`, and the Body runs `kloud-kode body` from the
+same module. The JavaScript implementation stays in the tree as the rollback
+path (`KOMPUTER_IMPL=node`) and as the behavior oracle for tests.
+
+What has not happened yet: no signed-in Claude, agy or muse turn has run the
+Go code, and no deployment has served a real harness over it. Treat the first
+real run as the acceptance test.
 
 ## End state
 

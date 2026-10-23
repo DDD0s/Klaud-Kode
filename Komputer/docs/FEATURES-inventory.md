@@ -1,6 +1,10 @@
 # Kloud Kode feature inventory (main branch)
 
-What Kloud Kode does today on `main`, as the owner built it. It was assembled by
+> Historical snapshot of the JavaScript implementation at `90753b7`, kept as the
+> design record for the Go rewrite. The deployment default is now the Go binary;
+> see `docs/go-rewrite.md`. Where the two differ, the Go code and its tests win.
+
+What Kloud Kode did on `main` at that revision, as the owner built it. It was assembled by
 reading every tracked file on `main` at `90753b7` (source, docs, configs, scripts,
 tests, CI) and all 14 commit messages. Nothing here describes PR #1 except the last
 section, which lists where PR #1's assumptions disagree with this design.

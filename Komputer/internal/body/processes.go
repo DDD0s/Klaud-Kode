@@ -28,19 +28,6 @@ type DroppedBytes struct {
 	Stderr int `json:"stderr"`
 }
 
-func readInto(read io.Reader, target *HeadAndTail) {
-	buf := make([]byte, 4096)
-	for {
-		n, err := read.Read(buf)
-		if n > 0 {
-			target.Push(buf[:n])
-		}
-		if err != nil {
-			return
-		}
-	}
-}
-
 // RunCommand runs one command synchronously with bounded output.
 func RunCommand(cfg Config, command, cwd, shell string, timeoutMs int) (CommandResult, error) {
 	startedAt := time.Now()
@@ -52,23 +39,15 @@ func RunCommand(cfg Config, command, cwd, shell string, timeoutMs int) (CommandR
 	}
 	cmd := spawn
 	cmd.Stdin = nil
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		cleanup()
-		return CommandResult{}, err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		cleanup()
-		return CommandResult{}, err
-	}
+	// Bounded collectors as the command's writers. With StdoutPipe a fast
+	// command can exit before the reader drains, so output is lost on a loaded
+	// machine; a writer makes cmd.Wait wait for the copy to finish too.
+	cmd.Stdout = out
+	cmd.Stderr = errBuf
 	if err := cmd.Start(); err != nil {
 		cleanup()
 		return CommandResult{}, err
 	}
-	done := make(chan struct{}, 2)
-	go func() { readInto(stdout, out); done <- struct{}{} }()
-	go func() { readInto(stderr, errBuf); done <- struct{}{} }()
 	var timedOut atomic.Bool
 	var timer *time.Timer
 	if timeoutMs > 0 {
@@ -81,8 +60,6 @@ func RunCommand(cfg Config, command, cwd, shell string, timeoutMs int) (CommandR
 	if timer != nil {
 		timer.Stop()
 	}
-	<-done
-	<-done
 	cleanup()
 	outBytes, outDropped := out.Finish()
 	errBytes, errDropped := errBuf.Finish()

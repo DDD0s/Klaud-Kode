@@ -1,9 +1,12 @@
 # Go rewrite status
 
-Status: merged in `main` and now the deployment default: `start.sh` builds and
-runs `komputer-api/kloud-kode`, and the Body runs `kloud-kode body` from the
-same module. The JavaScript implementation stays in the tree as the rollback
-path (`KOMPUTER_IMPL=node`) and as the behavior oracle for tests.
+Status: merged in `main` and now the deployment default. Releases publish
+checksum-verified binaries for Linux, Windows and macOS (amd64/arm64);
+`start.sh`, `start.ps1` and the Body launchers download the version named by
+`Komputer/VERSION`, so neither host needs a Go toolchain. `KLOUD_KODE_BUILD=1`
+builds from a checkout instead. The JavaScript implementation stays in the
+tree as the rollback path (`KOMPUTER_IMPL=node`) and as the behavior oracle
+for tests.
 
 What has not happened yet: no signed-in Claude, agy or muse turn has run the
 Go code, and no deployment has served a real harness over it. Treat the first

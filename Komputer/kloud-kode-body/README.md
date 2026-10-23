@@ -8,8 +8,7 @@ Body 跑在你想操作的电脑上，提供文件、命令、进程和本机 MC
 
 ## 安装
 
-需要 Git 和 Go 1.27 以上。服务是 `Komputer/cmd/kloud-kode` 编出来的单个二进制，
-启动脚本在第一次运行时自动编译；旧的 JavaScript 实现仍可用 `KOMPUTER_IMPL=node` 回退，那时才需要 Node.js 20 以上。
+需要 Git 和能访问 GitHub Releases 的网络，不需要 Go。启动脚本会下载与 `Komputer/VERSION` 对应的预编译二进制并校验 SHA-256；只有 `KLOUD_KODE_BUILD=1` 从源码构建时才需要 Go 1.27 以上。旧的 JavaScript 实现仍可用 `KOMPUTER_IMPL=node` 回退，那时才需要 Node.js 20 以上。
 在要操作的电脑上打开终端：
 
 ```bash
@@ -77,8 +76,7 @@ Windows PowerShell：
 .\start.ps1 http
 ```
 
-两个脚本都会在需要时编译二进制，然后启动 `kloud-kode body http`；
-也可以先 `go build -o kloud-kode ./cmd/kloud-kode`（在 `Komputer/` 目录）再直接运行 `./kloud-kode body http`。
+两个脚本都会在需要时下载预编译二进制，然后启动 `kloud-kode body http`。也可以直接从 GitHub Releases 下载对应平台的压缩包，解压后运行其中的 `kloud-kode body http`，完全不需要 clone 仓库；配置文件仍按下面说明放在用户目录。
 
 看到监听 `127.0.0.1:8787` 的日志后，保持进程运行。另开终端访问 `http://127.0.0.1:8787/healthz`，
 确认服务能响应。健康检查不需要 token，也不代表 MCP 鉴权已经通过。

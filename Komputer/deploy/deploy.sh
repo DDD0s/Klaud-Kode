@@ -42,8 +42,12 @@ if [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]]; then
 fi
 echo "== deploying $(git log --oneline -1)"
 
-echo "== local tests (Go)"
-(cd "$ROOT/Komputer" && go vet ./... && go test ./...)
+if command -v go >/dev/null 2>&1; then
+  echo "== local tests (Go)"
+  (cd "$ROOT/Komputer" && go vet ./... && go test ./...)
+else
+  echo "== skipping local Go tests: go not found (the brain downloads a precompiled release)"
+fi
 
 # The JavaScript implementation stays in the tree as the rollback path, so its
 # suites keep running as the behaviour oracle.

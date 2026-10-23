@@ -18,11 +18,13 @@ func TestWorkDirFallsBackWhenDenied(t *testing.T) {
 	workDirAttempts, workDirDelay = 2, time.Millisecond
 	t.Cleanup(func() { workDirAttempts, workDirDelay = attempts, delay })
 	server, _ := newBareServer(t)
-	// Point the backend at a path that cannot exist on any platform.
-	missing := filepath.Join("Z:", "no-such-root", "deep", "cwd")
-	if _, err := os.Stat(missing); err == nil {
-		t.Skip("Z: exists on this host")
+	// A regular file used as a parent cannot be created through, on either
+	// platform, so MkdirAll always fails here.
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
 	}
+	missing := filepath.Join(blocker, "cwd")
 	claude := backend.NewClaude(config.Claude{Cwd: missing, ModelID: "komputer-claude"})
 	if err := server.ensureWorkDir(claude); err != nil {
 		t.Fatalf("fallback failed: %v", err)

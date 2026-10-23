@@ -15,3 +15,7 @@ Komputer/komputer-api/kloud-kode
 Komputer/komputer-api/kloud-kode.exe
 Komputer/kloud-kode-body/kloud-kode
 Komputer/kloud-kode-body/kloud-kode.exe
+# Versioned release binaries installed by the launchers.
+Komputer/komputer-api/bin/
+Komputer/kloud-kode-body/bin/
+Komputer/komputer-api/.kloud-kode-version

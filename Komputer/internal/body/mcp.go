@@ -3,6 +3,7 @@ package body
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
@@ -132,11 +133,15 @@ var (
 	bearerPattern  = regexp.MustCompile("(?i)^Bearer\\s+(.+)$")
 )
 
+// tokenMatches compares digests, so the comparison time does not leak the
+// token length either.
 func tokenMatches(supplied, token string) bool {
 	if supplied == "" || token == "" {
 		return false
 	}
-	return len(supplied) == len(token) && subtle.ConstantTimeCompare([]byte(supplied), []byte(token)) == 1
+	a := sha256.Sum256([]byte(supplied))
+	b := sha256.Sum256([]byte(token))
+	return subtle.ConstantTimeCompare(a[:], b[:]) == 1
 }
 
 // maskToken keeps the token out of logs and error bodies.
@@ -187,11 +192,23 @@ func (s *Service) Handler() http.Handler {
 		if !tokenMatches(supplied, s.cfg.Token) {
 			s.logf("auth failed from %s %s %s", socketAddress(r), r.Method, maskToken(path))
 			time.Sleep(1000 * time.Millisecond)
+			w.Header().Set("WWW-Authenticate", `Bearer realm="kloud-kode-body"`)
 			writeMCPJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid token"})
 			return
 		}
+		// Streamable HTTP clients may open a GET stream; this server answers
+		// nothing asynchronously, so an empty 200 keeps them from retrying.
+		if r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusOK)
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			return
+		}
 		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST")
+			w.Header().Set("Allow", "POST, GET")
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
@@ -299,7 +316,14 @@ func (s *Service) Run(ctx context.Context, mode string) error {
 	if err != nil {
 		return err
 	}
-	server := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 15 * time.Second, IdleTimeout: 120 * time.Second}
+	// No ReadTimeout: a tool call can stream for minutes and MCP bodies reach
+	// 16 MB. The header timeout bounds opening, the read cap bounds the body.
+	server := &http.Server{
+		Handler:           s.Handler(),
+		ReadHeaderTimeout: 15 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
 	errCh := make(chan error, 1)
 	go func() {
 		s.logf("kloud-kode-body %s on http://%s/mcp, roots: %s (files=%v shell=%v processes=%v)", Version, listener.Addr(), strings.Join(rootsText, " "), s.cfg.Files, s.cfg.Shell, s.cfg.Processes)

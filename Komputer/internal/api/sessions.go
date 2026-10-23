@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/domain"
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/session"
+	"github.com/DDD0s/Kloud-Kode/Komputer/internal/version"
 )
 
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) error {
@@ -109,7 +111,13 @@ func (s *Server) handleCountTokens(w http.ResponseWriter, r *http.Request) error
 		parts = append(parts, domain.ContentToText(m.Content))
 	}
 	text := strings.Join(parts, newline)
-	tokens := int(math.Round(float64(len([]rune(text))) / 3.5))
+	// JavaScript measured UTF-16 code units; astral characters count as two
+	// there, so use that length to keep estimates identical across runtimes.
+	units := 0
+	for _, r := range text {
+		units += utf16.RuneLen(r)
+	}
+	tokens := int(math.Round(float64(units) / 3.5))
 	if tokens < 1 {
 		tokens = 1
 	}
@@ -142,7 +150,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"builtin_tools": s.cfg.BuiltinTools, "no_key_mode": s.cfg.NoKeyMode, "listen": listen,
 		"body_probe_skipped": s.cfg.SkipTunnel,
 		"client_tools":       s.harness.Stats(),
-		"implementation":     "go-rewrite-slice-6",
+		"implementation":     "go",
+		"version":            version.Value,
 	}
 	if s.cfg.SkipTunnel {
 		body["body_ok"] = nil

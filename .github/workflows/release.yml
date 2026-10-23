@@ -39,7 +39,7 @@ jobs:
           for target in linux/amd64 linux/arm64 windows/amd64 windows/arm64 darwin/amd64 darwin/arm64; do
             goos="${target%/*}"; goarch="${target#*/}"; ext=""; if [[ "$goos" == windows ]]; then ext=".exe"; fi
             stage="$(mktemp -d)"
-            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -C Komputer -trimpath -ldflags "-s -w -X main.buildVersion=$version -X main.buildCommit=$commit -X main.buildDate=$date" -o "$stage/kloud-kode$ext" ./cmd/kloud-kode
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -C Komputer -trimpath -ldflags "-s -w -X github.com/DDD0s/Kloud-Kode/Komputer/internal/version.Value=$version -X github.com/DDD0s/Kloud-Kode/Komputer/internal/version.Commit=$commit -X github.com/DDD0s/Kloud-Kode/Komputer/internal/version.Date=$date" -o "$stage/kloud-kode$ext" ./cmd/kloud-kode
             asset="kloud-kode-$version-$goos-$goarch"
             if [[ "$goos" == windows ]]; then (cd "$stage" && zip -q "$GITHUB_WORKSPACE/dist/$asset.zip" "kloud-kode$ext"); else chmod +x "$stage/kloud-kode"; tar -C "$stage" -czf "dist/$asset.tar.gz" kloud-kode; fi
             rm -rf "$stage"

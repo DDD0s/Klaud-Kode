@@ -3,7 +3,8 @@
 Status: merged in `main` and now the deployment default. Releases publish
 checksum-verified binaries for Linux, Windows and macOS (amd64/arm64);
 `start.sh`, `start.ps1` and the Body launchers download the version named by
-`Komputer/VERSION`, so neither host needs a Go toolchain. `KLOUD_KODE_BUILD=1`
+`Komputer/VERSION` into `bin/`, so neither host needs a Go toolchain and an
+upgrade never overwrites the file a running service holds. `KLOUD_KODE_BUILD=1`
 builds from a checkout instead. The JavaScript implementation stays in the
 tree as the rollback path (`KOMPUTER_IMPL=node`) and as the behavior oracle
 for tests.
@@ -87,8 +88,12 @@ stay at the edge. None of them is allowed to become the internal model.
   image-store privacy and delete, and Antigravity session create/resume
   through the real Go bridge process plus client tools on one continuing
   fake-agy process.
-- `go vet ./...` passes for the host and with `GOOS=linux`.
-- Linux and Windows binaries cross-compile (about 12 MB each).
+- `go vet ./...` passes for the host and with `GOOS=linux`, and every release
+  target cross-compiles in CI, so a tag build cannot fail after merge.
+- The v1.0.1 review added regression tests for the launcher checksum path and
+  versioned install, the Body token in URL paths and GET streams,
+  percent-encoded ids, UTF-16 token estimates, the auth limiter bounds, the
+  encrypted-PKCS#8 TLS key path and the work-directory fallback.
 - Fake-CLI results only. No signed-in CLI or production deployment has run
   the Go binary yet; the JavaScript suites remain untouched and green.
 
@@ -96,4 +101,11 @@ stay at the edge. None of them is allowed to become the internal model.
 
 1. Caller-environment binding and the model-visible leak gate from
    `docs/REMOTE-BRAIN-DESIGN.md`, then a real signed-in acceptance run.
-2. Deployment switch with the JavaScript build kept as the rollback.
+
+## Known limits
+
+- On a Windows host whose antivirus denies writes from an unseen executable for
+  a whole run, the work directory falls back to `komputer-api/work-<backend>` and
+  the service says so; set `KOMPUTER_WORKSPACE_ROOT` to choose explicitly.
+- The encrypted-key path accepts PBES2 PKCS#8 only (what `openssl genpkey`
+  writes); a legacy `openssl rsa -aes256` PEM key is reported, not decrypted.

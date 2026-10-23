@@ -76,7 +76,7 @@ Windows PowerShell：
 .\start.ps1 http
 ```
 
-两个脚本都会在需要时下载预编译二进制，然后启动 `kloud-kode body http`。也可以直接从 GitHub Releases 下载对应平台的压缩包，解压后运行其中的 `kloud-kode body http`，完全不需要 clone 仓库；配置文件仍按下面说明放在用户目录。
+两个脚本都会把对应版本的预编译二进制下载到 `bin/`（校验 SHA-256）后启动 `kloud-kode body http`。也可以直接从 GitHub Releases 下载对应平台的压缩包，解压后运行其中的 `kloud-kode body http`，完全不需要 clone 仓库；配置文件仍按下面说明放在用户目录。
 
 看到监听 `127.0.0.1:8787` 的日志后，保持进程运行。另开终端访问 `http://127.0.0.1:8787/healthz`，
 确认服务能响应。健康检查不需要 token，也不代表 MCP 鉴权已经通过。

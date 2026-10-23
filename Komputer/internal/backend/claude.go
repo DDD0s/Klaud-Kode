@@ -38,9 +38,12 @@ func NewClaude(cfg config.Claude) *Claude {
 	return &Claude{cfg: cfg, ids: ids}
 }
 
-func (c *Claude) Name() string           { return "claude" }
-func (c *Claude) Bin() string            { return c.cfg.Bin }
-func (c *Claude) Cwd() string            { return c.cfg.Cwd }
+func (c *Claude) Name() string { return "claude" }
+func (c *Claude) Bin() string  { return c.cfg.Bin }
+func (c *Claude) Cwd() string  { return c.cfg.Cwd }
+
+// Cfg exposes the backend configuration so the server can adjust it.
+func (c *Claude) Cfg() *config.Claude    { return &c.cfg }
 func (c *Claude) IDs() []string          { return append([]string{}, c.ids...) }
 func (c *Claude) DefaultID() string      { return c.cfg.ModelID }
 func (c *Claude) TaskModel() string      { return c.cfg.TaskModel }

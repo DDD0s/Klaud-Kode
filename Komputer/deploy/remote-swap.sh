@@ -38,8 +38,19 @@ for rev in "$prev" "$next"; do
   fi
 done
 
-# The launcher resolves the release named by Komputer/VERSION in this checkout.
-# It downloads and checksum-verifies that binary before the service restarts.
+# The launcher downloads the release named by Komputer/VERSION. Check that the
+# release actually exists before stopping anything, so a merged VERSION bump
+# without its published tag fails the deploy instead of the restart.
+version_file="$(cd .. && pwd)/VERSION"
+if [[ -f "$version_file" ]]; then
+  wanted="$(tr -d '[:space:]' < "$version_file")"
+  if ! curl -fsSL --max-time 10 -o /dev/null "https://github.com/${KLOUD_KODE_REPO:-DDD0s/Kloud-Kode}/releases/download/$wanted/SHA256SUMS"; then
+    echo "release $wanted has no SHA256SUMS yet; publish the tag before deploying" >&2
+    git -C "$REPO" reset -q --hard "$prev"
+    exit 1
+  fi
+  echo "release $wanted is published"
+fi
 
 # Do not cut off a turn that is running right now (wait up to 5 minutes).
 for _ in $(seq 1 60); do

@@ -13,9 +13,13 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -121,7 +125,7 @@ func NewServer(cfg config.Config) (*Server, error) {
 		}
 	}
 	for _, b := range registry.List {
-		if err := mkdirWithRetry(b.Cwd()); err != nil {
+		if err := s.ensureWorkDir(b); err != nil {
 			return nil, fmt.Errorf("cannot create the %s work directory: %w (set KOMPUTER_WORKSPACE_ROOT to a writable path if the home directory is protected)", b.Name(), err)
 		}
 		for _, note := range b.Init() {
@@ -134,22 +138,88 @@ func NewServer(cfg config.Config) (*Server, error) {
 	return s, nil
 }
 
-// mkdirWithRetry creates a directory, retrying for a few seconds because
-// antivirus and indexing tools on Windows can deny the first writes of an
-// executable whose hash they have not seen before.
+// ensureWorkDir creates a backend's work directory. When the path is denied
+// outright (an antivirus rule scoped to the profile, for example), it falls
+// back to a directory beside the service, which is always writable in a normal
+// install and keeps the model off the checkout either way.
+func (s *Server) ensureWorkDir(b backend.Backend) error {
+	dir := b.Cwd()
+	err := mkdirWithRetry(dir)
+	if err == nil {
+		return nil
+	}
+	// Second choice: beside the service. That directory belongs to the
+	// install, is writable by the service user, and normally sits outside the
+	// checkout the model should not read.
+	fallback := filepath.Join(s.cfg.BaseDir, "work-"+b.Name())
+	if fallbackErr := mkdirWithRetry(fallback); fallbackErr != nil {
+		return err
+	}
+	switch typed := b.(type) {
+	case *backend.Claude:
+		typed.Cfg().Cwd = fallback
+	case *backend.Antigravity:
+		typed.Cfg().Cwd = fallback
+	case *backend.Muse:
+		typed.Cfg().Cwd = fallback
+	}
+	s_debugf("work directory fell back to %q (%v)", fallback, err)
+	return nil
+}
+
+// How long directory creation keeps retrying, and how long to wait between
+// attempts. Antivirus and indexing tools on Windows deny writes from an
+// executable whose hash they have not seen before; the first launch of a
+// freshly installed binary is exactly that case, and the denial can last for
+// the whole run. Tests shorten both.
+var (
+	workDirAttempts = 20
+	workDirDelay    = 250 * time.Millisecond
+)
+
+// mkdirWithRetry creates a directory, retrying for a few seconds for the
+// antivirus case above.
 func mkdirWithRetry(dir string) error {
 	var err error
-	delay := 100
-	for attempt := 0; attempt < 10; attempt++ {
+	delay := workDirDelay
+	for attempt := 0; attempt < workDirAttempts; attempt++ {
 		if err = os.MkdirAll(dir, 0o755); err == nil {
 			return nil
 		}
-		time.Sleep(time.Duration(delay) * time.Millisecond)
-		if delay < 750 {
-			delay += 100
+		// Windows antivirus can deny writes from an executable whose hash it
+		// has never seen, for the whole first run. cmd.exe is always trusted,
+		// so it can create the directory the process itself may not.
+		if runtime.GOOS == "windows" && attempt >= 2 {
+			shell := os.Getenv("COMSPEC")
+			if shell == "" {
+				shell = "cmd.exe"
+			}
+			if _, cmdErr := exec.Command(shell, "/c", "mkdir", dir).CombinedOutput(); cmdErr == nil {
+				s_debugf("mkdir %q via cmd after %d attempts", dir, attempt)
+				return nil
+			}
+		}
+		if debug := os.Getenv("KLOUD_DEBUG_MKDIR"); debug != "" {
+			fmt.Fprintf(os.Stderr, "DEBUG mkdir %q attempt %d: %v\n", dir, attempt, err)
+			if info, statErr := os.Stat(filepath.Dir(dir)); statErr == nil {
+				fmt.Fprintf(os.Stderr, "DEBUG parent mode=%v isDir=%v\n", info.Mode(), info.IsDir())
+			} else {
+				fmt.Fprintf(os.Stderr, "DEBUG parent stat: %v\n", statErr)
+			}
+		}
+		time.Sleep(delay)
+		if delay < 1500*time.Millisecond {
+			delay += workDirDelay
 		}
 	}
 	return err
+}
+
+// s_debugf writes startup diagnostics when KLOUD_DEBUG_MKDIR is set.
+func s_debugf(format string, args ...any) {
+	if os.Getenv("KLOUD_DEBUG_MKDIR") != "" {
+		fmt.Fprintf(os.Stderr, "DEBUG "+format+"\n", args...)
+	}
 }
 
 func (s *Server) logf(format string, args ...any) {
@@ -244,8 +314,37 @@ type authEntry struct {
 	count int
 }
 
+// limiterMaxAddresses bounds the limiter map so a spray of source addresses
+// cannot grow it without limit.
+const limiterMaxAddresses = 4096
+
 func newAuthLimiter(limit int, window time.Duration) *authLimiter {
 	return &authLimiter{limit: limit, window: window, items: map[string]*authEntry{}}
+}
+
+// dropFromOrderLocked removes one address from the insertion queue. The queue
+// is bounded by limiterMaxAddresses, so a linear scan is cheap.
+func (l *authLimiter) dropFromOrderLocked(address string) {
+	for i, queued := range l.order {
+		if queued == address {
+			l.order = append(l.order[:i], l.order[i+1:]...)
+			return
+		}
+	}
+}
+
+// evictOldestLocked drops the oldest tracked address, and any expired heads,
+// keeping map and order consistent.
+func (l *authLimiter) evictOldestLocked(now time.Time) {
+	for len(l.order) > 0 {
+		oldest := l.order[0]
+		l.order = l.order[1:]
+		e := l.items[oldest]
+		delete(l.items, oldest)
+		if e != nil && now.Sub(e.at) < l.window {
+			return
+		}
+	}
 }
 
 // Failed records one failure and returns a retry delay in seconds when over
@@ -255,9 +354,14 @@ func (l *authLimiter) Failed(address string, now time.Time) int {
 	defer l.mu.Unlock()
 	e := l.items[address]
 	if e == nil || now.Sub(e.at) >= l.window {
-		if len(l.items) >= 4096 && len(l.order) > 0 {
-			delete(l.items, l.order[0])
-			l.order = l.order[1:]
+		if e != nil {
+			// The address is already queued; drop the stale slot so map and
+			// order stay in step.
+			delete(l.items, address)
+			l.dropFromOrderLocked(address)
+		}
+		if len(l.items) >= limiterMaxAddresses {
+			l.evictOldestLocked(now)
 		}
 		e = &authEntry{at: now}
 		l.items[address] = e
@@ -404,10 +508,16 @@ func (s *Server) Handler() http.Handler {
 	})
 }
 
+// cleanPath trims trailing slashes and percent-decodes, so an encoded
+// session id or response id resolves like it does in the JavaScript server.
+// A malformed escape keeps the raw path instead of failing the dispatch.
 func cleanPath(p string) string {
 	p = strings.TrimRight(p, "/")
 	if p == "" {
 		return "/"
+	}
+	if decoded, err := url.PathUnescape(p); err == nil && decoded != "" {
+		return decoded
 	}
 	return p
 }
@@ -491,7 +601,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	}
 	var tlsConfig *tls.Config
 	if s.cfg.TLSCertFile != "" {
-		cert, err := tls.LoadX509KeyPair(s.cfg.TLSCertFile, s.cfg.TLSKeyFile)
+		cert, err := loadKeyPair(s.cfg.TLSCertFile, s.cfg.TLSKeyFile, s.cfg.TLSKeyPassphrase)
 		if err != nil {
 			return err
 		}
@@ -508,9 +618,11 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		srv := &http.Server{
 			Handler:           s.Handler(),
 			ReadHeaderTimeout: 15 * time.Second,
-			ReadTimeout:       30 * time.Second,
-			IdleTimeout:       120 * time.Second,
-			TLSConfig:         tlsConfig,
+			// No ReadTimeout: a 50 MB body on a slow link takes longer than the
+			// old 30 s, and the CLI turn has its own timeout. The header timeout
+			// still bounds slow-loris opening; a body cap bounds the read.
+			IdleTimeout: 120 * time.Second,
+			TLSConfig:   tlsConfig,
 		}
 		servers = append(servers, srv)
 		go func(srv *http.Server, ln net.Listener, label string) {

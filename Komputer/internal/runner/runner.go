@@ -86,6 +86,9 @@ func (r *Runner) Run(ctx context.Context, b backend.Backend, turn backend.Turn, 
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = cwd
 	cmd.Env = childenv.ToList(env)
+	// Own process group so terminateProcess can signal the CLI and every
+	// child it spawned, instead of only the direct child.
+	setProcessGroup(cmd)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

@@ -10,11 +10,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/DDD0s/Kloud-Kode/Komputer/internal/version"
 )
 
-// Version is the Body protocol version reported to MCP clients. It matches
-// the JavaScript Body release this implementation is compatible with.
-const Version = "1.3.0"
+// Version is the Body release reported to MCP clients and health checks.
+var Version = version.Value
 
 // NestedServer is one stdio MCP server installed on this machine.
 type NestedServer struct {

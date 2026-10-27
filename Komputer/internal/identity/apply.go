@@ -127,8 +127,20 @@ func Apply(p Profile, opts ApplyOptions) (ApplyReport, error) {
 
 	// User account.
 	if p.User.Name != "" {
-		if _, err := osuser.Lookup(p.User.Name); err == nil {
-			report.note("user %q already exists", p.User.Name)
+		if offline && passwdHasUser(at("/etc/passwd"), p.User.Name) {
+			report.note("user %q already exists in the staged rootfs", p.User.Name)
+		} else if !offline {
+			if _, err := osuser.Lookup(p.User.Name); err == nil {
+				report.note("user %q already exists", p.User.Name)
+			} else if !opts.CreateUser {
+				report.note("user %q missing (pass --create-user)", p.User.Name)
+			} else if opts.DryRun {
+				report.note("would create user %q", p.User.Name)
+			} else if err := runOptional(&report, "useradd", "-m", "-s", "/bin/bash", p.User.Name); err == nil {
+				report.note("created user %q", p.User.Name)
+			} else {
+				report.note("create user %q failed: %v", p.User.Name, err)
+			}
 		} else if opts.CreateUser {
 			if opts.DryRun {
 				report.note("would create user %q", p.User.Name)
@@ -258,6 +270,21 @@ func runOptional(report *ApplyReport, name string, args ...string) error {
 		return err
 	}
 	return exec.Command(path, args...).Run()
+}
+
+// passwdHasUser reports whether a staged passwd file already lists the user.
+// The host's own user database is meaningless for a rootfs being built.
+func passwdHasUser(path, name string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, name+":") {
+			return true
+		}
+	}
+	return false
 }
 
 // ensureUserEntry appends a passwd line when staging a rootfs, where useradd

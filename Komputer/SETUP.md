@@ -172,7 +172,42 @@ Messages 的完整请求地址是 `/v1/messages`。不同客户端是否自动�
 按 [Body 安装步骤](kloud-kode-body/README.md) 配置并启动服务，默认监听 `127.0.0.1:8787`。
 记下 Body token。它和 API key 是两把不同的钥匙。
 
-### 远端到本地的连接
+### 让大脑连到 Body：Body 主动拨入（推荐，尤其异地）
+
+如果那台电脑在异地、家庭宽带后面，远端连不进去是很正常的事情。这种情况不要做端口映射，
+而是让 Body 自己往外连：
+
+远端 `env`：
+
+```bash
+KOMPUTER_BODY_CONNECT=1
+KOMPUTER_BODY_TOKEN=和 Body 相同的 token
+```
+
+本地电脑：
+
+```powershell
+.\start.ps1 connect --to https://你的大脑域名
+```
+
+或在 `config.json` 里写 `"brainUrl": "wss://你的大脑域名"` 后直接运行 `kloud-kode body connect`。
+连接断了会一直自动重连（退避到 30 秒）；这台电脑不需要任何入站端口，也不需要 SSH。
+远端 `/healthz` 的 `body_connected` 为 `true` 就连上了。MCP 配置自动生成，不用做下面
+「远端 MCP 配置」一节的模板步骤。
+
+#### 无人值守：让它开机自己起来
+
+这台电脑没人管的话，要保证重启后它自己回来。Windows 下用一个计划任务：
+
+```powershell
+schtasks /Create /TN "KloudKodeBody" /SC ONLOGON /RL LIMITED `
+  /TR "powershell -NoProfile -WindowStyle Hidden -Command Set-Location 'C:\Kloud-Kode\Komputer\kloud-kode-body'; .\start.ps1 connect"
+```
+
+Linux 用用户单元（`systemd --user`）执行同样命令，并 `loginctl enable-linger $USER`，
+这样不用登录也能跑。电源设置里把“睡眠”关掉，Body 断线后是自动恢复的。
+
+### 或者：远端到本地的隧道
 
 Body 不要裸露到公网。内置隧道脚本要求远端能 SSH 到本地电脑，通常需要先接入私网。
 用你已有的 SSH 配置，把本地电脑设成 `body`，然后在远端检查：

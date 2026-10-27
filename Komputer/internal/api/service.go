@@ -282,6 +282,20 @@ const tunnelOKCache = 15 * time.Second
 
 func (g *tunnelGuard) ensure() error {
 	cfg := g.server.cfg
+	// A Body that dialed in is either connected or it is not; nothing to probe,
+	// nothing to revive.
+	if cfg.BodyConnect {
+		if g.server.bodyLink.Connected() {
+			g.okAt = time.Now()
+			g.failErr = nil
+			return nil
+		}
+		err := fmt.Errorf("no body connected")
+		g.okAt = time.Time{}
+		g.failAt = time.Now()
+		g.failErr = err
+		return err
+	}
 	// A direct Body URL is reachable on its own: probe it, and only treat a
 	// failure as an outage. No SSH is involved, so there is nothing to revive.
 	if cfg.BodyURL != "" {

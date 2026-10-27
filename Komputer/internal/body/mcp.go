@@ -334,18 +334,23 @@ func (s *Service) serveStdio(ctx context.Context, in io.Reader, out io.Writer) e
 	}
 }
 
-// Run connects nested servers and serves Body over HTTP or stdio.
+// Run connects nested servers and serves Body over HTTP, stdio, or an
+// outbound link to the brain ("connect"), for machines nobody can dial into.
 func (s *Service) Run(ctx context.Context, mode string) error {
 	if mode == "" {
 		mode = "http"
 	}
-	if mode != "http" && mode != "stdio" {
-		return fmt.Errorf("usage: kloud-kode body [http|stdio]")
+	if mode != "http" && mode != "stdio" && mode != "connect" {
+		return fmt.Errorf("usage: kloud-kode body [http|stdio|connect]")
 	}
 	s.ConnectNested(ctx)
 	rootsText := []string{}
 	for name, dir := range s.cfg.Roots {
 		rootsText = append(rootsText, name+"->"+dir)
+	}
+	if mode == "connect" {
+		s.logf("kloud-kode-body %s connecting to brain, roots: %s (files=%v shell=%v processes=%v)", Version, strings.Join(rootsText, " "), s.cfg.Files, s.cfg.Shell, s.cfg.Processes)
+		return s.ServeConnect(ctx, s.cfg.BrainURL)
 	}
 	if mode == "stdio" {
 		s.logf("kloud-kode-body %s on stdio, roots: %s (files=%v shell=%v processes=%v)", Version, strings.Join(rootsText, " "), s.cfg.Files, s.cfg.Shell, s.cfg.Processes)

@@ -5,11 +5,12 @@ $ErrorActionPreference = "Stop"
 $Dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Module = Split-Path -Parent $Dir
 $Mode = if ($args.Count -ge 1) { $args[0] } else { "http" }
+$Rest = if ($args.Count -gt 1) { $args[1..($args.Count - 1)] } else { @() }
 
 if ($env:KOMPUTER_IMPL -eq "node") {
   $node = if ($env:NODE_BIN) { $env:NODE_BIN } else { (Get-Command node -ErrorAction SilentlyContinue).Source }
   if (-not $node) { throw "node not found (set NODE_BIN)" }
-  & $node (Join-Path $Dir "server.mjs") $Mode
+  & $node (Join-Path $Dir "server.mjs") $Mode @Rest
   exit $LASTEXITCODE
 }
 
@@ -70,5 +71,5 @@ function Prepare-Binary {
 
 $Bin = Prepare-Binary
 Push-Location $Dir
-try { & $Bin body $Mode } finally { Pop-Location }
+try { & $Bin body $Mode @Rest } finally { Pop-Location }
 exit $LASTEXITCODE

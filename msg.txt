@@ -1,0 +1,20 @@
+feat: let the Body dial out to the brain (connect mode)
+
+For a computer nobody can dial into -- a family PC behind home NAT on another
+continent -- inbound reachability cannot be the plan. The Body now keeps one
+outbound WebSocket to the brain and redials forever with backoff, while the API
+proxies MCP over that link from its own loopback, so the CLI's tool path is
+unchanged. KOMPUTER_BODY_CONNECT=1 plus the shared body token enable it on the
+brain; `kloud-kode body connect --to <api-base>` (or brainUrl in the config)
+starts it on the computer.
+
+Reachability is reported honestly: /healthz gains body_connected and the remote
+endpoint, the guard treats a missing link as body_unavailable, and the generated
+MCP config points at the loopback proxy. Notifications from the Body are dropped
+at the proxy (request/response only), which is documented.
+
+Also passes extra arguments through the Body launchers so connect --to works from
+start.sh/start.ps1. Validation: round-trip test with a stub body over the real
+websocket, wrong-token rejection on both endpoints, config validation tests, vet
+(host and GOOS=linux), full suite, and a live run on this machine: API in connect
+mode + Body dialed in + system_info through the proxy returning this host.

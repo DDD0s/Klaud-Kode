@@ -154,9 +154,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, base, nil)
 		return
 	}
-	// A direct Body is checked here, so an operator sees reachability without a
-	// turn; the guard caches both outcomes.
-	if s.cfg.BodyURL != "" {
+	// A direct or dialed-in Body is checked here, so an operator sees
+	// reachability without a turn; the guard caches both outcomes.
+	if s.cfg.BodyURL != "" || s.cfg.BodyConnect {
 		_ = s.tunnel.ensure()
 	}
 	bodyOK, bodyChecked := s.tunnel.status()
@@ -190,6 +190,14 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.cfg.BodyURL != "" {
 		body["body_url"] = maskURLToken(s.cfg.BodyURL)
+	}
+	if s.cfg.BodyConnect {
+		connected, remote, since := s.bodyLink.Status()
+		body["body_connected"] = connected
+		body["body_remote"] = remote
+		if !since.IsZero() {
+			body["body_connected_since"] = since.UTC().Format(time.RFC3339Nano)
+		}
 	}
 	if bodyChecked != nil {
 		body["body_checked_at"] = *bodyChecked

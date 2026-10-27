@@ -59,10 +59,12 @@ func run(args []string) error {
 		return server.ListenAndServe(ctx)
 	case "body":
 		mode := "http"
+		var rest []string
 		if len(args) > 1 {
 			mode = args[1]
+			rest = args[2:]
 		}
-		return runBody(mode)
+		return runBody(mode, rest)
 	case "bridge":
 		name := "komputer_use"
 		if len(args) > 1 {
@@ -89,10 +91,17 @@ func run(args []string) error {
 	}
 }
 
-func runBody(mode string) error {
+func runBody(mode string, rest []string) error {
 	cfg, err := body.LoadConfig()
 	if err != nil {
 		return err
+	}
+	// "body connect --to wss://..." overrides the configured brain URL.
+	for i := 0; i < len(rest); i++ {
+		if rest[i] == "--to" && i+1 < len(rest) {
+			cfg.BrainURL = rest[i+1]
+			i++
+		}
 	}
 	logger := log.New(os.Stderr, "", 0)
 	logf := func(format string, args ...any) {

@@ -47,6 +47,11 @@ func Capture() (Profile, error) {
 	if err := capturePlatform(&p); err != nil {
 		return p, fmt.Errorf("capture platform facts: %w", err)
 	}
+	// A host without a registry/machine-id source still has a stable identity
+	// in its SMBIOS UUID; derive the machine id from it rather than failing.
+	if p.MachineID == "" && p.SystemUUID != "" {
+		p.MachineID = MachineIDFromGUID(p.SystemUUID)
+	}
 	if err := p.Validate(); err != nil {
 		return p, err
 	}

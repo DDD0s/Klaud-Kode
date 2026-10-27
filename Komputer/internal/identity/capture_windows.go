@@ -91,6 +91,18 @@ func encodePowerShell(script string) string {
 	return base64.StdEncoding.EncodeToString(buf)
 }
 
+// machineGUIDFallback reads only the registry value, for hosts where the full
+// CIM pass fails.
+func machineGUIDFallback(ctx context.Context) string {
+	const script = `(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Cryptography' -Name MachineGuid).MachineGuid`
+	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encodePowerShell(script))
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 func capturePlatform(p *Profile) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -101,12 +113,23 @@ func capturePlatform(p *Profile) error {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("powershell: %v: %s", err, strings.TrimSpace(stderr.String()))
-	}
+	runErr := cmd.Run()
 	var f winFacts
-	if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &f); err != nil {
-		return fmt.Errorf("parse machine facts: %w", err)
+	if runErr == nil && len(bytes.TrimSpace(stdout.Bytes())) > 0 {
+		// A CIM class that is missing on some hosts must not lose the whole
+		// capture; whatever parsed is still useful.
+		_ = json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &f)
+	}
+	if f.MachineGuid == "" {
+		// Fall back to a minimal query so a partial CIM failure cannot remove
+		// the one field the profile cannot do without.
+		f.MachineGuid = machineGUIDFallback(ctx)
+	}
+	if f.MachineGuid == "" && f.SystemUUID == "" {
+		if runErr != nil {
+			return fmt.Errorf("powershell: %v: %s", runErr, strings.TrimSpace(stderr.String()))
+		}
+		return fmt.Errorf("no machine identity available from this host")
 	}
 	p.MachineID = MachineIDFromGUID(f.MachineGuid)
 	p.SystemUUID = f.SystemUUID

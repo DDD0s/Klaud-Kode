@@ -203,8 +203,9 @@ func (s *Service) Handler() http.Handler {
 			}
 			data, err := s.machineIdentity()
 			if err != nil {
+				// The caller already holds the Body token, so say why it failed.
 				s.logf("identity capture failed: %v", err)
-				writeMCPJSON(w, http.StatusInternalServerError, map[string]any{"error": "identity unavailable"})
+				writeMCPJSON(w, http.StatusInternalServerError, map[string]any{"error": "identity unavailable: " + err.Error()})
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")

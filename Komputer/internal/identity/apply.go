@@ -12,7 +12,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"unicode"
 )
 
 // ApplyOptions controls how aggressive an application is.
@@ -248,17 +247,10 @@ func etcZoneFromOffset(offset string) string {
 	return "Etc/GMT-" + strconv.Itoa(n)
 }
 
-// SanitizeHostname reports whether a hostname is safe to apply.
+// SanitizeHostname reports whether a hostname is safe to apply. Kept as the
+// apply-side name for [ValidHostname].
 func SanitizeHostname(h string) bool {
-	if h == "" || len(h) > 63 {
-		return false
-	}
-	for _, r := range h {
-		if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '.') {
-			return false
-		}
-	}
-	return true
+	return ValidHostname(h)
 }
 
 // runOptional runs a helper tool; a missing tool is reported so the caller

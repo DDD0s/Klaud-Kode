@@ -159,3 +159,27 @@ func TestGuestEnv(t *testing.T) {
 		}
 	}
 }
+
+// A crafted profile must not be able to inject lines into /etc/hostname or
+// /etc/hosts through the hostname.
+func TestValidateRejectsUnsafeHostname(t *testing.T) {
+	for _, name := range []string{
+		"evil\n127.0.0.1 attacker",
+		"host name",
+		"host/name",
+		"-leading-dash",
+		"host_name",
+		strings.Repeat("a", 64),
+	} {
+		p := sampleProfile()
+		p.Hostname = name
+		if err := p.Validate(); err == nil {
+			t.Errorf("Validate accepted unsafe hostname %q", name)
+		}
+	}
+	p := sampleProfile()
+	p.Hostname = "Valid-Host-01"
+	if err := p.Validate(); err != nil {
+		t.Errorf("valid hostname rejected: %v", err)
+	}
+}

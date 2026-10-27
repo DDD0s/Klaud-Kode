@@ -95,3 +95,44 @@ func TestBodyLinkRoundTrip(t *testing.T) {
 		t.Fatalf("reply = %v", decoded)
 	}
 }
+
+// A replaced connection must not kill requests that are in flight on its
+// replacement: pending replies belong to whichever link is current.
+func TestBodyLinkDetachOfReplacedKeepsPending(t *testing.T) {
+	link := newBodyLink(nil)
+	live := &websocket.Conn{} // stands in for the replacement connection
+	link.conn = live
+	ch := make(chan []byte, 1)
+	link.pendingMu.Lock()
+	link.pending["live-1"] = &pendingCall{conn: live, ch: ch}
+	link.pendingMu.Unlock()
+
+	// Failing some other (replaced) connection's calls: detach does exactly
+	// this for the detached connection, and must not touch the live one.
+	link.failPendingFor(&websocket.Conn{})
+
+	select {
+	case _, open := <-ch:
+		if !open {
+			t.Fatal("pending reply channel was closed by a stale detach")
+		}
+	default:
+	}
+	link.pendingMu.Lock()
+	_, stillPending := link.pending["live-1"]
+	link.pendingMu.Unlock()
+	if !stillPending {
+		t.Fatal("pending entry removed by a stale detach")
+	}
+
+	// Failing the live connection's own calls does close them.
+	link.failPendingFor(live)
+	select {
+	case _, open := <-ch:
+		if open {
+			t.Fatal("expected the live call channel to be closed")
+		}
+	default:
+		t.Fatal("live call was not failed by its own detach")
+	}
+}

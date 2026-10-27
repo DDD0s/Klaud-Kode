@@ -204,8 +204,10 @@ schtasks /Create /TN "KloudKodeBody" /SC ONLOGON /RL LIMITED `
   /TR "powershell -NoProfile -WindowStyle Hidden -Command Set-Location 'C:\Kloud-Kode\Komputer\kloud-kode-body'; .\start.ps1 connect"
 ```
 
+计划任务里把大脑地址写进参数或 `config.json` 的 `brainUrl`，因为没有控制台可输。
 Linux 用用户单元（`systemd --user`）执行同样命令，并 `loginctl enable-linger $USER`，
 这样不用登录也能跑。电源设置里把“睡眠”关掉，Body 断线后是自动恢复的。
+另外给计划任务勾选“如果任务失败，重新启动”，它就是这台电脑唯一的“管理员”。
 
 ### 或者：远端到本地的隧道
 
@@ -245,8 +247,6 @@ chmod 600 "$HOME/.config/komputer/mcp.json"
 ```
 
 不要在仓库里的模板中填写真实 token；模板本身是被 Git 跟踪的，`.gitignore` 不会保护它。
-
-如果两台机器在同一个虚拟内网里，用上面的 `KOMPUTER_BODY_URL` 更省事：不用 SSH，也不用下面的模板。
 
 否则（要用 SSH 隧道时）修改 `env`：删掉前面设置的 `KOMPUTER_TUNNEL_UP=/bin/true`，把 `KOMPUTER_SKIP_TUNNEL` 改成 `0`，
 并补上另外两行：

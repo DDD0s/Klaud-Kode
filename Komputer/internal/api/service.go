@@ -282,6 +282,10 @@ const tunnelOKCache = 15 * time.Second
 
 func (g *tunnelGuard) ensure() error {
 	cfg := g.server.cfg
+	// One lock for every path: probeDirect and status() both touch the cached
+	// fields, and health checks run concurrently with turns.
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	// A Body that dialed in is either connected or it is not; nothing to probe,
 	// nothing to revive.
 	if cfg.BodyConnect {
@@ -299,16 +303,11 @@ func (g *tunnelGuard) ensure() error {
 	// A direct Body URL is reachable on its own: probe it, and only treat a
 	// failure as an outage. No SSH is involved, so there is nothing to revive.
 	if cfg.BodyURL != "" {
-		if err := g.probeDirect(); err != nil {
-			return err
-		}
-		return nil
+		return g.probeDirectLocked()
 	}
 	if cfg.SkipTunnel {
 		return nil
 	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
 	now := time.Now()
 	if !g.okAt.IsZero() && now.Sub(g.okAt) < tunnelOKCache {
 		return nil
@@ -328,9 +327,10 @@ func (g *tunnelGuard) ensure() error {
 	return nil
 }
 
-// probeDirect checks the Body at its configured address, caching success and
-// failure so one dead Body does not cost a request every call.
-func (g *tunnelGuard) probeDirect() error {
+// probeDirectLocked checks the Body at its configured address, caching
+// success and failure so one dead Body does not cost a request every call.
+// The caller holds g.mu.
+func (g *tunnelGuard) probeDirectLocked() error {
 	cfg := g.server.cfg
 	now := time.Now()
 	if !g.okAt.IsZero() && now.Sub(g.okAt) < tunnelOKCache {
@@ -432,15 +432,21 @@ func (s *Server) ensureTunnelOr503() error {
 		apiErr := typedErr(http.StatusServiceUnavailable, publicErrors["body_unavailable"], "body_unavailable")
 		apiErr.Detail = privateDetail(err)
 		retry := 10
-		s.tunnel.mu.Lock()
-		if !s.tunnel.failAt.IsZero() {
-			remain := s.cfg.TunnelFailCache - time.Since(s.tunnel.failAt)
-			retry = int((remain + time.Second - 1) / time.Second)
-			if retry < 1 {
-				retry = 1
+		if s.cfg.BodyConnect {
+			// Nothing is cached in connect mode: a Body that redials a second
+			// later must succeed on the very next attempt.
+			retry = 2
+		} else {
+			s.tunnel.mu.Lock()
+			if !s.tunnel.failAt.IsZero() {
+				remain := s.cfg.TunnelFailCache - time.Since(s.tunnel.failAt)
+				retry = int((remain + time.Second - 1) / time.Second)
+				if retry < 1 {
+					retry = 1
+				}
 			}
+			s.tunnel.mu.Unlock()
 		}
-		s.tunnel.mu.Unlock()
 		apiErr.RetryAfter = retry
 		return apiErr
 	}

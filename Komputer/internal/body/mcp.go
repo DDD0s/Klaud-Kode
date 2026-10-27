@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"github.com/DDD0s/Kloud-Kode/Komputer/internal/identity"
 	"io"
 	"net"
 	"net/http"
@@ -163,12 +164,54 @@ func socketAddress(r *http.Request) string {
 	return "unknown"
 }
 
+// machineIdentity captures this computer's identity once; capture shells out
+// to the OS inventory and is not free.
+func (s *Service) machineIdentity() ([]byte, error) {
+	s.identityOnce.Do(func() {
+		profile, err := identity.Capture()
+		if err != nil {
+			s.identityErr = err
+			return
+		}
+		s.identityText, s.identityErr = profile.Marshal()
+	})
+	return s.identityText, s.identityErr
+}
+
 // Handler is the Streamable HTTP MCP endpoint plus public health.
 func (s *Service) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimRight(r.URL.Path, "/")
 		if path == "" {
 			path = "/"
+		}
+		// This computer's machine identity, for the brain to adopt. Authenticated
+		// like the MCP endpoint because it carries real hardware serials.
+		if r.Method == http.MethodGet && path == "/identity" {
+			supplied := ""
+			if values := r.Header.Values("Authorization"); len(values) == 1 {
+				if bearer := bearerPattern.FindStringSubmatch(values[0]); bearer != nil {
+					supplied = strings.TrimSpace(bearer[1])
+				}
+			}
+			if !tokenMatches(supplied, s.cfg.Token) {
+				s.logf("identity auth failed from %s", socketAddress(r))
+				time.Sleep(1000 * time.Millisecond)
+				w.Header().Set("WWW-Authenticate", `Bearer realm="kloud-kode-body"`)
+				writeMCPJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid token"})
+				return
+			}
+			data, err := s.machineIdentity()
+			if err != nil {
+				// The caller already holds the Body token, so say why it failed.
+				s.logf("identity capture failed: %v", err)
+				writeMCPJSON(w, http.StatusInternalServerError, map[string]any{"error": "identity unavailable: " + err.Error()})
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(data)
+			return
 		}
 		if r.Method == http.MethodGet && (path == "/healthz" || path == "/health") {
 			writeMCPJSON(w, http.StatusOK, map[string]any{"ok": true, "service": "kloud-kode-body", "version": Version})

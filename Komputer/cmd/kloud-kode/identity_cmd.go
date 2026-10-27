@@ -52,6 +52,19 @@ func identityFlags(args []string) map[string]string {
 	return flags
 }
 
+// flagValue reads a valued flag; the boolean placeholder "true" means the
+// operator forgot the value, which must not become a filename.
+func flagValue(flags map[string]string, name string) (string, error) {
+	v, present := flags[name]
+	if !present {
+		return "", nil
+	}
+	if v == "true" {
+		return "", fmt.Errorf("--%s needs a value", name)
+	}
+	return v, nil
+}
+
 func loadProfile(path string) (identity.Profile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -74,7 +87,10 @@ func identityCapture(args []string) error {
 		fmt.Println(string(data))
 		return nil
 	}
-	out := flags["out"]
+	out, err := flagValue(flags, "out")
+	if err != nil {
+		return err
+	}
 	if out == "" {
 		out = "machine-identity.json"
 	}
@@ -88,7 +104,10 @@ func identityCapture(args []string) error {
 
 func identityApply(args []string) error {
 	flags := identityFlags(args)
-	path := flags["profile"]
+	path, err := flagValue(flags, "profile")
+	if err != nil {
+		return err
+	}
 	if path == "" {
 		path = "machine-identity.json"
 	}
@@ -96,10 +115,14 @@ func identityApply(args []string) error {
 	if err != nil {
 		return err
 	}
+	root, err := flagValue(flags, "root")
+	if err != nil {
+		return err
+	}
 	report, err := identity.Apply(profile, identity.ApplyOptions{
 		DryRun:     flags["dry-run"] == "true",
 		CreateUser: flags["create-user"] == "true",
-		RootPrefix: flags["root"],
+		RootPrefix: root,
 	})
 	if report.String() != "" {
 		fmt.Println(report.String())
@@ -111,7 +134,14 @@ func identityApply(args []string) error {
 // every file it can read about itself describes the caller's computer.
 func identityStage(args []string) error {
 	flags := identityFlags(args)
-	path := flags["profile"]
+	root, err := flagValue(flags, "root")
+	if err != nil {
+		return err
+	}
+	path, err := flagValue(flags, "profile")
+	if err != nil {
+		return err
+	}
 	if path == "" {
 		path = "machine-identity.json"
 	}
@@ -119,7 +149,6 @@ func identityStage(args []string) error {
 	if err != nil {
 		return err
 	}
-	root := flags["root"]
 	if root == "" {
 		return fmt.Errorf("stage needs --root <dir>")
 	}
@@ -135,7 +164,10 @@ func identityStage(args []string) error {
 
 func identityQEMU(args []string) error {
 	flags := identityFlags(args)
-	path := flags["profile"]
+	path, err := flagValue(flags, "profile")
+	if err != nil {
+		return err
+	}
 	if path == "" {
 		path = "machine-identity.json"
 	}
@@ -155,7 +187,10 @@ func identityQEMU(args []string) error {
 
 func identityShow(args []string) error {
 	flags := identityFlags(args)
-	path := flags["profile"]
+	path, err := flagValue(flags, "profile")
+	if err != nil {
+		return err
+	}
 	if path == "" {
 		path = "machine-identity.json"
 	}

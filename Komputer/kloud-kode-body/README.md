@@ -91,7 +91,7 @@ HTTP 模式下 token 也可以写在路径里（`http://主机:端口/mcp/<token
 
 **主动拨出（异地 / 家里那台）**：这台电脑出站连到大脑并一直挂着，断线自动重连。
 远端 `env` 里设 `KOMPUTER_BODY_CONNECT=1` 与相同的 `KOMPUTER_BODY_TOKEN`，本地执行
-`kloud-kode body connect --to https://你的大脑域名`（或在配置里写 `brainUrl`）。
+`kloud-kode body connect --to https://你的大脑域名`（也可以在配置里写 `brainUrl`，启动时就不带参数）。
 不需要路由器转发、不需要 SSH、不需要内网产品，适合长期在亲友家无人值守的那种场景。
 
 **虚拟内网（推荐）**：两台机器加入同一个 Tailscale / ZeroTier / WireGuard 网络，把 `host` 改成内网地址

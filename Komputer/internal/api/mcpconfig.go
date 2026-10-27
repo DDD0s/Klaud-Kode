@@ -3,9 +3,12 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/config"
@@ -30,8 +33,10 @@ func ensureMCPConfig(cfg *config.Config) error {
 	bodyURL := cfg.BodyURL
 	if cfg.BodyConnect {
 		// The CLI talks to this server's loopback proxy; the live Body is on
-		// the other end of a WebSocket it dialed in.
-		bodyURL = fmt.Sprintf("http://127.0.0.1:%d/body/mcp", cfg.Port)
+		// the other end of a WebSocket it dialed in. Use the address the
+		// server actually listens on: KOMPUTER_API_HOST entries may carry
+		// their own port, and a specific bind is not reachable on 127.0.0.1.
+		bodyURL = proxyBaseURL(cfg) + "/body/mcp"
 	}
 	if bodyURL == "" {
 		return nil
@@ -51,8 +56,38 @@ func ensureMCPConfig(cfg *config.Config) error {
 	if err := os.MkdirAll(filepath.Dir(cfg.MCPConfig), 0o755); err != nil {
 		return fmt.Errorf("cannot create the MCP config directory: %w", err)
 	}
-	// 0600: the file carries the Body token.
-	return os.WriteFile(cfg.MCPConfig, append(data, '\n'), 0o600)
+	// 0600: the file carries the Body token. WriteFile only applies the mode
+	// on creation, so tighten a pre-existing file explicitly.
+	if err := os.WriteFile(cfg.MCPConfig, append(data, '\n'), 0o600); err != nil {
+		return err
+	}
+	if runtime.GOOS != "windows" {
+		return os.Chmod(cfg.MCPConfig, 0o600)
+	}
+	return nil
+}
+
+// proxyBaseURL returns where a process on this host can reach the API.
+// A loopback listener wins; a wildcard bind is reachable on 127.0.0.1; a
+// specific interface must be used as-is. With TLS configured every listener
+// serves TLS, so the URL must be https as well.
+func proxyBaseURL(cfg *config.Config) string {
+	port := cfg.Port
+	host := "127.0.0.1"
+	for _, l := range cfg.Listen {
+		port = l.Port
+		if l.Host != "" && l.Host != "0.0.0.0" && l.Host != "::" {
+			host = l.Host
+		}
+		if host == "127.0.0.1" || host == "::1" || host == "localhost" {
+			break
+		}
+	}
+	scheme := "http"
+	if cfg.TLSCertFile != "" {
+		scheme = "https"
+	}
+	return fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(host, strconv.Itoa(port)))
 }
 
 // readBodyToken extracts the token from a URL of the form http://host:port/mcp/<token>.

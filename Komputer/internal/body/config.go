@@ -181,6 +181,10 @@ func LoadConfig() (Config, error) {
 	if cfg.Token == "" {
 		cfg.Token = raw.Token
 	}
+	cfg.BrainURL = os.Getenv("KLOUD_KODE_BRAIN_URL")
+	if cfg.BrainURL == "" {
+		cfg.BrainURL = raw.BrainURL
+	}
 	return cfg, nil
 }
 

@@ -204,8 +204,12 @@ func (p *Profile) Validate() error {
 	if p.Schema != Schema {
 		return fmt.Errorf("profile schema %q, want %q", p.Schema, Schema)
 	}
-	if strings.TrimSpace(p.Hostname) == "" {
+	p.Hostname = strings.TrimSpace(p.Hostname)
+	if p.Hostname == "" {
 		return fmt.Errorf("profile has no hostname")
+	}
+	if !ValidHostname(p.Hostname) {
+		return fmt.Errorf("profile hostname %q is not a safe hostname", p.Hostname)
 	}
 	p.MachineID = NormalizeMachineID(p.MachineID)
 	if p.MachineID == "" {
@@ -237,6 +241,34 @@ func (p *Profile) PrimaryNIC() (NIC, bool) {
 		}
 	}
 	return NIC{}, false
+}
+
+// ValidHostname reports whether h can be written to /etc/hostname and used in
+// /etc/hosts without injecting lines: letters, digits, hyphens and dots only,
+// no leading/trailing hyphen or dot, no empty label, at most 63 chars.
+func ValidHostname(h string) bool {
+	if h == "" || len(h) > 63 || h[0] == '-' || h[0] == '.' {
+		return false
+	}
+	prevDot := false
+	for _, r := range h {
+		switch {
+		case r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9':
+			prevDot = false
+		case r == '-':
+			if prevDot {
+				return false
+			}
+		case r == '.':
+			if prevDot {
+				return false
+			}
+			prevDot = true
+		default:
+			return false
+		}
+	}
+	return !prevDot && h[len(h)-1] != '-'
 }
 
 // Marshal renders the profile as indented JSON.

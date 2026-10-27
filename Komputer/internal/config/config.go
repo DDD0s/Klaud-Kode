@@ -404,13 +404,18 @@ func Load(source map[string]string) (Config, error) {
 	}
 	cfg.StreamToolNotes = !falsy(e["KOMPUTER_STREAM_TOOL_NOTES"])
 	cfg.StreamThinking = !falsy(e["KOMPUTER_STREAM_THINKING"])
+	if raw, set := e["KOMPUTER_BODY_CONNECT"]; set && !truthy(raw) && !falsy(raw) {
+		// A typo like "enabled" must not read as a silent "off": the Body would
+		// connect and log success while the brain never uses the link.
+		return cfg, fmt.Errorf("KOMPUTER_BODY_CONNECT=%q is not a boolean (use 1/true/yes/on)", raw)
+	}
 	cfg.BodyConnect = truthy(e["KOMPUTER_BODY_CONNECT"])
 	if cfg.BodyConnect && cfg.BodyURL != "" {
 		return cfg, fmt.Errorf("set at most one of KOMPUTER_BODY_URL and KOMPUTER_BODY_CONNECT")
 	}
 	if cfg.BodyConnect {
-		if cfg.BodyToken == "" {
-			return cfg, fmt.Errorf("KOMPUTER_BODY_CONNECT requires KOMPUTER_BODY_TOKEN")
+		if len(cfg.BodyToken) < 24 {
+			return cfg, fmt.Errorf("KOMPUTER_BODY_CONNECT requires KOMPUTER_BODY_TOKEN of at least 24 characters")
 		}
 		// The Body comes to us; there is no address to probe and no tunnel.
 		cfg.SkipTunnel = true
@@ -500,6 +505,12 @@ func Load(source map[string]string) (Config, error) {
 	cfg.TLSKeyPassphrase = e.get("KOMPUTER_TLS_KEY_PASSPHRASE", "")
 	if (cfg.TLSCertFile == "") != (cfg.TLSKeyFile == "") {
 		return cfg, fmt.Errorf("configure both KOMPUTER_TLS_CERT_FILE and KOMPUTER_TLS_KEY_FILE")
+	}
+	if cfg.BodyConnect && cfg.TLSCertFile != "" {
+		// The generated loopback MCP URL cannot speak this listener's TLS, and
+		// the certificate is not valid for a loopback name. Failing loudly
+		// beats a Body that looks connected until the first tool call.
+		return cfg, fmt.Errorf("KOMPUTER_BODY_CONNECT cannot be combined with built-in TLS listeners; terminate TLS at a proxy instead")
 	}
 	// Checked by the API when it loads the pair, so a wrong passphrase fails
 	// with the TLS error rather than only at handshake time.

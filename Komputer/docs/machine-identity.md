@@ -45,9 +45,16 @@ kloud-kode identity show        # 打码汇总，不打印完整序列号
 curl -H "Authorization: Bearer $KLOUD_KODE_BODY_TOKEN" http://<本机内网地址>:8787/identity
 ```
 
-在大脑上生成并应用：
+在在 VM 模板里用，或写入离线 rootfs。大脑上生成并应用：
 
 ```bash
+# 布景：把 CLI 能读到的每一个环境文件都做成本机的版本，放到 stage 目录
+kloud-kode identity stage --profile machine-identity.json --root ./stage
+
+# 在布景里启动 CLI（需要 root 或用户命名空间）；
+# 它问系统什么，得到的都是这台电脑的答案
+./deploy/stage-launch.sh ./stage <cli 命令>
+
 # QEMU 身份参数（uuid / smbios / vCPU / 内存）+ guest.env
 kloud-kode identity qemu --profile machine-identity.json
 

@@ -8,7 +8,7 @@ import (
 	"github.com/DDD0s/Kloud-Kode/Komputer/internal/identity"
 )
 
-// runIdentity implements: kloud-kode identity <capture|apply|qemu|show> [flags]
+// runIdentity implements: kloud-kode identity <capture|apply|qemu|stage|show> [flags]
 //
 // capture runs on the caller's own computer and records its machine identity.
 // apply runs on the brain (Linux guest) and makes that guest report the
@@ -16,13 +16,15 @@ import (
 // for the same profile.
 func runIdentity(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: kloud-kode identity <capture|apply|qemu|show> [flags]")
+		return fmt.Errorf("usage: kloud-kode identity <capture|apply|qemu|stage|show> [flags]")
 	}
 	switch args[0] {
 	case "capture":
 		return identityCapture(args[1:])
 	case "apply":
 		return identityApply(args[1:])
+	case "stage":
+		return identityStage(args[1:])
 	case "qemu":
 		return identityQEMU(args[1:])
 	case "show":
@@ -98,6 +100,32 @@ func identityApply(args []string) error {
 		DryRun:     flags["dry-run"] == "true",
 		CreateUser: flags["create-user"] == "true",
 		RootPrefix: flags["root"],
+	})
+	if report.String() != "" {
+		fmt.Println(report.String())
+	}
+	return err
+}
+
+// identityStage materialises the fake system the brain-side CLI will run in:
+// every file it can read about itself describes the caller's computer.
+func identityStage(args []string) error {
+	flags := identityFlags(args)
+	path := flags["profile"]
+	if path == "" {
+		path = "machine-identity.json"
+	}
+	profile, err := loadProfile(path)
+	if err != nil {
+		return err
+	}
+	root := flags["root"]
+	if root == "" {
+		return fmt.Errorf("stage needs --root <dir>")
+	}
+	report, err := identity.BuildStage(profile, identity.StageOptions{
+		Rootfs: root,
+		DryRun: flags["dry-run"] == "true",
 	})
 	if report.String() != "" {
 		fmt.Println(report.String())

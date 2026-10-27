@@ -7,11 +7,12 @@ set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULE="$(dirname "$DIR")"
 MODE="${1:-http}"
+if [ $# -gt 0 ]; then shift; fi
 
 if [[ "${KOMPUTER_IMPL:-go}" == "node" ]]; then
   NODE="${NODE_BIN:-$(command -v node || true)}"
   [[ -n "$NODE" ]] || { echo "ERROR: node not found (set NODE_BIN)" >&2; exit 1; }
-  exec "$NODE" "$DIR/server.mjs" "$MODE"
+  exec "$NODE" "$DIR/server.mjs" "$MODE" "$@"
 fi
 
 fail() { echo "ERROR: $*" >&2; exit 1; }
@@ -78,4 +79,4 @@ prepare() {
 
 prepare
 cd "$DIR"
-exec "$BIN" body "$MODE"
+exec "$BIN" body "$MODE" "$@"

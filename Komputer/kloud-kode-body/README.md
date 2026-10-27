@@ -87,7 +87,12 @@ HTTP 模式下 token 也可以写在路径里（`http://主机:端口/mcp/<token
 
 ## 远端怎么连接
 
-默认只监听本机（`127.0.0.1`），别的机器连不进来。两种接法：
+默认只监听本机（`127.0.0.1`），别的机器连不进来。三种接法：
+
+**主动拨出（异地 / 家里那台）**：这台电脑出站连到大脑并一直挂着，断线自动重连。
+远端 `env` 里设 `KOMPUTER_BODY_CONNECT=1` 与相同的 `KOMPUTER_BODY_TOKEN`，本地执行
+`kloud-kode body connect --to https://你的大脑域名`（或在配置里写 `brainUrl`）。
+不需要路由器转发、不需要 SSH、不需要内网产品，适合长期在亲友家无人值守的那种场景。
 
 **虚拟内网（推荐）**：两台机器加入同一个 Tailscale / ZeroTier / WireGuard 网络，把 `host` 改成内网地址
 （或设 `KLOUD_KODE_BODY_HOST`），远端填 `KOMPUTER_BODY_URL=http://<内网地址>:8787/mcp/<token>`。
@@ -108,7 +113,7 @@ HTTP 模式下 token 也可以写在路径里（`http://主机:端口/mcp/<token
 }
 ```
 
-这份带 token 的配置保存在仓库外，通过 `KOMPUTER_MCP_CONFIG` 告诉 API 它的位置。
+这份带 token 的配置保存在仓库外，通过 `KOMPUTER_MCP_CONFIG` 告诉 API 它的位置。用「主动拨出」或 `KOMPUTER_BODY_URL` 时，这份配置由 API 自动生成，不需要手写。
 `/mcp/<token>` 地址仍可用于不支持请求头的客户端，但 token 会出现在 URL 中，不要把这类地址写进日志或截图。
 
 ## 能做什么

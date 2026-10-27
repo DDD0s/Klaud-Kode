@@ -94,6 +94,11 @@ type Config struct {
 	// BodyToken is written into the generated MCP config when the URL carries
 	// no token; empty means the Body needs no header.
 	BodyToken string
+	// BodyConnect accepts a Body that dials out to this server instead of being
+	// dialed. The Body keeps a WebSocket open and the generated MCP config
+	// points at this server's own loopback proxy for it. Mutually exclusive
+	// with BodyURL; requires BodyToken.
+	BodyConnect bool
 	// BodyProbe is what the readiness check requests; empty derives it from
 	// BodyURL. It defaults to an SSH-tunnel health URL for compatibility.
 	BodyProbe          string
@@ -399,6 +404,18 @@ func Load(source map[string]string) (Config, error) {
 	}
 	cfg.StreamToolNotes = !falsy(e["KOMPUTER_STREAM_TOOL_NOTES"])
 	cfg.StreamThinking = !falsy(e["KOMPUTER_STREAM_THINKING"])
+	cfg.BodyConnect = truthy(e["KOMPUTER_BODY_CONNECT"])
+	if cfg.BodyConnect && cfg.BodyURL != "" {
+		return cfg, fmt.Errorf("set at most one of KOMPUTER_BODY_URL and KOMPUTER_BODY_CONNECT")
+	}
+	if cfg.BodyConnect {
+		if cfg.BodyToken == "" {
+			return cfg, fmt.Errorf("KOMPUTER_BODY_CONNECT requires KOMPUTER_BODY_TOKEN")
+		}
+		// The Body comes to us; there is no address to probe and no tunnel.
+		cfg.SkipTunnel = true
+	}
+
 	// A direct Body URL makes the SSH tunnel optional; reachability is checked
 	// against that address instead of a forwarded loopback port.
 	if cfg.BodyURL != "" {

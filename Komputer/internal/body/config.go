@@ -42,7 +42,10 @@ type Config struct {
 	ConsoleUTF8      bool
 	MCPServers       map[string]NestedServer
 	Token            string
-	ConfigPath       string
+	// BrainURL is where connect mode dials out to (wss://host/...). Empty in
+	// listen modes, where the brain comes to this Body instead.
+	BrainURL   string
+	ConfigPath string
 }
 
 type rawConfig struct {
@@ -59,6 +62,7 @@ type rawConfig struct {
 	ConsoleUTF8      *bool                   `json:"consoleUtf8"`
 	MCPServers       map[string]NestedServer `json:"mcpServers"`
 	Token            string                  `json:"token"`
+	BrainURL         string                  `json:"brainUrl"`
 }
 
 // ConfigPath returns the config file path (KLOUD_KODE_BODY_CONFIG wins).

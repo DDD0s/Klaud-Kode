@@ -27,14 +27,20 @@ type mcpServer struct {
 // .mcp.json and no token copied into the repository. Without it the checked-in
 // template (or an operator's own file) is left alone.
 func ensureMCPConfig(cfg *config.Config) error {
-	if cfg.BodyURL == "" {
+	bodyURL := cfg.BodyURL
+	if cfg.BodyConnect {
+		// The CLI talks to this server's loopback proxy; the live Body is on
+		// the other end of a WebSocket it dialed in.
+		bodyURL = fmt.Sprintf("http://127.0.0.1:%d/body/mcp", cfg.Port)
+	}
+	if bodyURL == "" {
 		return nil
 	}
 	token := cfg.BodyToken
 	if token == "" {
-		token = readBodyToken(cfg.BodyURL)
+		token = readBodyToken(bodyURL)
 	}
-	server := mcpServer{Type: "http", URL: cfg.BodyURL}
+	server := mcpServer{Type: "http", URL: bodyURL}
 	if token != "" {
 		server.Headers = map[string]string{"Authorization": "Bearer " + token}
 	}

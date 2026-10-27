@@ -56,6 +56,7 @@ type Server struct {
 	locks     *keyLocks
 	turns     *turnRegistry
 	tunnel    *tunnelGuard
+	bodyLink  *bodyLink
 	harness   *harness.Gateway
 	responses *responses.Store
 }
@@ -100,6 +101,7 @@ func NewServer(cfg config.Config) (*Server, error) {
 		Logf: s.logf,
 	}
 	s.tunnel = &tunnelGuard{server: s}
+	s.bodyLink = newBodyLink(s)
 	if err := ensureMCPConfig(&cfg); err != nil {
 		return nil, err
 	}
@@ -528,6 +530,12 @@ func cleanPath(p string) string {
 func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) error {
 	p := cleanPath(r.URL.Path)
 	switch {
+	case p == "/body/connect":
+		s.bodyLink.handleConnect(w, r)
+		return nil
+	case p == "/body/mcp":
+		s.bodyLink.handleMCP(w, r)
+		return nil
 	case r.Method == http.MethodGet && (p == "/healthz" || p == "/health"):
 		s.handleHealth(w, r)
 		return nil

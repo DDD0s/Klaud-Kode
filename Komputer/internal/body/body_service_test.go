@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/DDD0s/Kloud-Kode/Komputer/internal/identity"
 )
 
 func newTestService(t *testing.T) (*Service, string) {
@@ -356,5 +358,41 @@ func TestBodyMCPHTTPAndStdio(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "komputer") || !strings.Contains(out.String(), "system_info") {
 		t.Fatalf("stdio output: %s", out.String())
+	}
+}
+
+// The brain adopts this computer's identity, so /identity must be served only
+// to an authenticated caller and carry the captured profile.
+func TestBodyIdentityEndpointRequiresToken(t *testing.T) {
+	service, _ := newTestService(t)
+	ts := httptest.NewServer(service.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/identity")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated status %d", resp.StatusCode)
+	}
+
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/identity", nil)
+	req.Header.Set("Authorization", "Bearer "+service.cfg.Token)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("identity status %d: %s", resp.StatusCode, data)
+	}
+	profile, err := identity.ParseProfile(data)
+	if err != nil {
+		t.Fatalf("profile: %v", err)
+	}
+	if profile.Hostname == "" || profile.MachineID == "" {
+		t.Fatalf("profile missing core fields: %+v", profile)
 	}
 }

@@ -25,8 +25,8 @@ func printVersion() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: kloud-kode <api|body|bridge|hook|shim|version>")
-	fmt.Fprintln(os.Stderr, "this Go rewrite slice implements: api, body, bridge, hook, shim, version")
+	fmt.Fprintln(os.Stderr, "usage: kloud-kode <api|body|bridge|hook|shim|identity|version>")
+	fmt.Fprintln(os.Stderr, "identity: capture|apply|qemu|show - copy this machine's identity to the brain")
 }
 
 func main() {
@@ -77,6 +77,8 @@ func run(args []string) error {
 		}
 		os.Exit(backend.RunAGYHook(os.Stdin, os.Stdout, os.Getenv, home))
 		return nil
+	case "identity":
+		return runIdentity(args[1:])
 	case "shim":
 		cwd, _ := os.Getwd()
 		os.Exit(backend.RunAGYShim(context.Background(), args[1:], os.Stdout, os.Stderr, os.Getenv, cwd))

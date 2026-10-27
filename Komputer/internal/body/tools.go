@@ -24,6 +24,10 @@ type Service struct {
 
 	osVersionOnce sync.Once
 	osVersionText string
+
+	identityOnce sync.Once
+	identityText []byte
+	identityErr  error
 }
 
 // NewService builds a Body service.

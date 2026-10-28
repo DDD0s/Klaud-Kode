@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/childenv"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/childenv"
 )
 
 func agyGlobalMCP(home string) string {

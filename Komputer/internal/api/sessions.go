@@ -9,9 +9,9 @@ import (
 	"time"
 	"unicode/utf16"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/domain"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/session"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/version"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/domain"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/session"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/version"
 )
 
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) error {

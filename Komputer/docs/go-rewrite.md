@@ -4,7 +4,7 @@ Status: merged in `main` and now the deployment default. Releases publish
 checksum-verified binaries for Linux, Windows and macOS (amd64/arm64);
 `start.sh`, `start.ps1` and the Body launchers download the version named by
 `Komputer/VERSION` into `bin/`, so neither host needs a Go toolchain and an
-upgrade never overwrites the file a running service holds. `KLOUD_KODE_BUILD=1`
+upgrade never overwrites the file a running service holds. `KLAUD_KODE_BUILD=1`
 builds from a checkout instead. The JavaScript implementation stays in the
 tree as the rollback path (`KOMPUTER_IMPL=node`) and as the behavior oracle
 for tests.
@@ -17,9 +17,9 @@ real run as the acceptance test.
 
 One Go binary with subcommands:
 
-- `kloud-kode api` — the brain-host API service
-- `kloud-kode body` — the caller-computer execution layer
-- `kloud-kode bridge|hook|shim` — small CLI helper entrypoints (not yet)
+- `klaud-kode api` — the brain-host API service
+- `klaud-kode body` — the caller-computer execution layer
+- `klaud-kode bridge|hook|shim` — small CLI helper entrypoints (not yet)
 
 Internal layering is protocol-neutral at the center:
 
@@ -61,9 +61,9 @@ stay at the edge. None of them is allowed to become the internal model.
   the Body's MCP endpoint directly, skips the SSH tunnel, probes the Body for
   health, reports `body_direct` / `body_ok` (token masked) and generates the
   MCP config file from that URL. The Body can bind a private-network address
-  through `host` / `KLOUD_KODE_BODY_HOST` and warns when it only binds loopback.
+  through `host` / `KLAUD_KODE_BODY_HOST` and warns when it only binds loopback.
   With `KOMPUTER_BODY_CONNECT=1` the Body instead dials out over one WebSocket
-  (`kloud-kode body connect`) and the API proxies MCP over it from its own
+  (`klaud-kode body connect`) and the API proxies MCP over it from its own
   loopback, for computers nobody can dial into; /healthz reports
   `body_connected` and the Body redials forever with backoff.
 - Body health probe / tunnel revive, TLS listener support, exact-origin CORS,

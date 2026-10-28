@@ -1,4 +1,4 @@
-// Drives a real kloud-kode-body process over HTTP, the same way the brain does.
+// Drives a real klaud-kode-body process over HTTP, the same way the brain does.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -52,7 +52,7 @@ async function call(name, args = {}) {
 }
 
 before(async () => {
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kloud-body-test-"));
+  tmp = fs.mkdtempSync(path.join(os.tmpdir(), "klaud-body-test-"));
   root = path.join(tmp, "root");
   fs.mkdirSync(path.join(root, "sub"), { recursive: true });
   fs.writeFileSync(path.join(root, "hello.txt"), "line one\nline two\nline three\n");
@@ -65,7 +65,7 @@ before(async () => {
     JSON.stringify({ port, host: "127.0.0.1", roots: { main: root }, defaultRoot: "main", token: "c".repeat(48) })
   );
   proc = spawn(process.execPath, [path.join(here, "..", "server.mjs"), "http"], {
-    env: { ...process.env, KLOUD_KODE_BODY_CONFIG: path.join(tmp, "config.json"), KLOUD_KODE_BODY_TOKEN: TOKEN },
+    env: { ...process.env, KLAUD_KODE_BODY_CONFIG: path.join(tmp, "config.json"), KLAUD_KODE_BODY_TOKEN: TOKEN },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let log = "";
@@ -121,7 +121,7 @@ test("healthz needs no token and says nothing sensitive", async () => {
   assert.equal(r.status, 200);
   const j = await r.json();
   assert.deepEqual(Object.keys(j).sort(), ["ok", "service", "version"]);
-  assert.equal(j.service, "kloud-kode-body");
+  assert.equal(j.service, "klaud-kode-body");
 });
 
 test("the tool list covers shell, files, processes and nested MCP", async () => {
@@ -177,7 +177,7 @@ test("run_command separates stdout from stderr and reports the exit code", async
 
 test("renamed body configuration and token are removed from command environments", async () => {
   const script = path.join(tmp, "check-env.mjs");
-  fs.writeFileSync(script, "process.stdout.write(JSON.stringify(Object.keys(process.env).filter(k => /^KLOUD_KODE_BODY_(TOKEN|CONFIG)$/i.test(k))));\n");
+  fs.writeFileSync(script, "process.stdout.write(JSON.stringify(Object.keys(process.env).filter(k => /^KLAUD_KODE_BODY_(TOKEN|CONFIG)$/i.test(k))));\n");
   const r = await call("run_command", { command: `"${process.execPath}" "${script}"` });
   assert.equal(r.exitCode, 0, r.stderr);
   assert.deepEqual(JSON.parse(r.stdout), []);

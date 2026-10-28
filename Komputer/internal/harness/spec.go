@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/domain"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/domain"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 

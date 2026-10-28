@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -17,9 +16,9 @@ import (
 )
 
 // A plaintext link may only be used where the network itself is the boundary:
-// loopback and private addresses. KLOUD_KODE_BRAIN_ALLOW_PLAINTEXT=1 overrides.
+// loopback and private addresses. KLAUD_KODE_BRAIN_ALLOW_PLAINTEXT=1 overrides.
 func plaintextAllowed(host string) bool {
-	if os.Getenv("KLOUD_KODE_BRAIN_ALLOW_PLAINTEXT") == "1" {
+	if getenv("KLAUD_KODE_BRAIN_ALLOW_PLAINTEXT") == "1" {
 		return true
 	}
 	if host == "localhost" {
@@ -36,7 +35,7 @@ func plaintextAllowed(host string) bool {
 // machine is unattended: a watchdog restarting it should not be needed.
 func (s *Service) ServeConnect(ctx context.Context, brainURL string) error {
 	if len(s.cfg.Token) < 24 {
-		return fmt.Errorf("connect mode needs a token of at least 24 characters (set token in %s or KLOUD_KODE_BODY_TOKEN)", s.cfg.ConfigPath)
+		return fmt.Errorf("connect mode needs a token of at least 24 characters (set token in %s or KLAUD_KODE_BODY_TOKEN)", s.cfg.ConfigPath)
 	}
 	target, err := connectURL(brainURL)
 	if err != nil {
@@ -71,7 +70,7 @@ func (s *Service) ServeConnect(ctx context.Context, brainURL string) error {
 func connectURL(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "", fmt.Errorf("connect mode needs a brain URL (set brainUrl in the config, KLOUD_KODE_BRAIN_URL, or --to)")
+		return "", fmt.Errorf("connect mode needs a brain URL (set brainUrl in the config, KLAUD_KODE_BRAIN_URL, or --to)")
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
@@ -93,7 +92,7 @@ func connectURL(raw string) (string, error) {
 	// The token is a bearer credential; outside a private network it must not
 	// cross the internet in the clear.
 	if parsed.Scheme == "ws" && !plaintextAllowed(host) {
-		return "", fmt.Errorf("brain URL %q is plaintext ws to a public host; use wss:// (or set KLOUD_KODE_BRAIN_ALLOW_PLAINTEXT=1 to override)", raw)
+		return "", fmt.Errorf("brain URL %q is plaintext ws to a public host; use wss:// (or set KLAUD_KODE_BRAIN_ALLOW_PLAINTEXT=1 to override)", raw)
 	}
 	parsed.Path = strings.TrimRight(parsed.Path, "/")
 	if !strings.HasSuffix(parsed.Path, "/body/connect") {

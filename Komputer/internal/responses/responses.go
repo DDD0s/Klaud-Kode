@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/domain"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/domain"
 )
 
 func invalid(message string) *domain.APIError {

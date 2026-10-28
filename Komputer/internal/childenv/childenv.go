@@ -50,8 +50,10 @@ var MuseKeep = set(append(append([]string{}, base...),
 	"FAKE_MUSE_STATE", // test double only
 )...)
 
+// KL[AO]UD also covers the pre-rename prefix, so variables set under the
+// old product name stay reserved instead of leaking into child processes.
 var (
-	reservedPattern = regexp.MustCompile(`(?i)^(KOMPUTER_|BODY_|KLOUD_KODE_|CLAUDE_BIN$|AGY_BIN$|MUSE_BIN$|NODE_BIN$|CI$|GIT_CEILING_DIRECTORIES$)`)
+	reservedPattern = regexp.MustCompile(`(?i)^(KOMPUTER_|BODY_|KLAUD_KODE_|CLAUDE_BIN$|AGY_BIN$|MUSE_BIN$|NODE_BIN$|CI$|GIT_CEILING_DIRECTORIES$)`)
 	prefixPattern   = regexp.MustCompile(`^(LC_|XDG_|PROCESSOR_)`)
 )
 

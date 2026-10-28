@@ -1,4 +1,4 @@
-module github.com/DDD0s/Kloud-Kode/Komputer
+module github.com/DDD0s/Klaud-Kode/Komputer
 
 go 1.27
 

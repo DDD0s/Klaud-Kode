@@ -15,41 +15,41 @@ import (
 	"testing"
 )
 
-var builtKloud struct {
+var builtKlaud struct {
 	once sync.Once
 	path string
 	err  error
 }
 
-func kloudBinary(t *testing.T) string {
+func klaudBinary(t *testing.T) string {
 	t.Helper()
-	builtKloud.once.Do(func() {
-		dir, err := os.MkdirTemp("", "kloud-kode-test-bin")
+	builtKlaud.once.Do(func() {
+		dir, err := os.MkdirTemp("", "klaud-kode-test-bin")
 		if err != nil {
-			builtKloud.err = err
+			builtKlaud.err = err
 			return
 		}
-		name := "kloud-kode"
+		name := "klaud-kode"
 		if runtime.GOOS == "windows" {
 			name += ".exe"
 		}
-		builtKloud.path = filepath.Join(dir, name)
+		builtKlaud.path = filepath.Join(dir, name)
 		module, err := filepath.Abs(filepath.Join("..", ".."))
 		if err != nil {
-			builtKloud.err = err
+			builtKlaud.err = err
 			return
 		}
-		cmd := exec.Command("go", "build", "-o", builtKloud.path, "./cmd/kloud-kode")
+		cmd := exec.Command("go", "build", "-o", builtKlaud.path, "./cmd/klaud-kode")
 		cmd.Dir = module
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			builtKloud.err = fmt.Errorf("go build: %v: %s", err, out)
+			builtKlaud.err = fmt.Errorf("go build: %v: %s", err, out)
 		}
 	})
-	if builtKloud.err != nil {
-		t.Fatal(builtKloud.err)
+	if builtKlaud.err != nil {
+		t.Fatal(builtKlaud.err)
 	}
-	return builtKloud.path
+	return builtKlaud.path
 }
 
 type fakeBodySeen struct {
@@ -144,7 +144,7 @@ func agyFixture(t *testing.T, platform string, extra map[string]string) (fixture
 		"KOMPUTER_BACKENDS":         "claude,antigravity",
 		"KOMPUTER_AGY_REMOTE_TOOLS": "commands",
 		"AGY_BIN":                   fake,
-		"KLOUD_KODE_BIN":            kloudBinary(t),
+		"KLAUD_KODE_BIN":            klaudBinary(t),
 	}
 	for k, v := range extra {
 		env[k] = v
@@ -273,7 +273,7 @@ func TestGoAPIAGYSessionAndBridge(t *testing.T) {
 	}
 	decode(t, globalRaw, &global)
 	entry := global.Servers["komputer_use"]
-	if entry.Command != kloudBinary(t) || strings.Join(entry.Args, " ") != "bridge komputer_use" {
+	if entry.Command != klaudBinary(t) || strings.Join(entry.Args, " ") != "bridge komputer_use" {
 		t.Fatalf("bridge entry: %+v", entry)
 	}
 	if strings.Contains(string(globalRaw), "body-secret") || strings.Contains(string(globalRaw), "127.0.0.1") {

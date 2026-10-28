@@ -26,13 +26,13 @@ jobs:
           cache: npm
           cache-dependency-path: |
             Komputer/komputer-api/package-lock.json
-            Komputer/kloud-kode-body/package-lock.json
+            Komputer/klaud-kode-body/package-lock.json
       - name: Install API dependencies
         working-directory: Komputer/komputer-api
         run: npm ci --ignore-scripts --no-audit --no-fund
       # The API tests run agy turns against a real workstation (Body) process.
       - name: Install workstation dependencies
-        working-directory: Komputer/kloud-kode-body
+        working-directory: Komputer/klaud-kode-body
         run: npm ci --ignore-scripts --no-audit --no-fund
       # Ubuntu runners ship PowerShell 7; the Windows-computer tests run against it.
       - name: PowerShell version
@@ -41,7 +41,7 @@ jobs:
         working-directory: Komputer/komputer-api
         run: npm test
       - name: Test workstation tools
-        working-directory: Komputer/kloud-kode-body
+        working-directory: Komputer/klaud-kode-body
         run: npm test
 
   # The workstation on a real Windows host: Windows PowerShell 5.1, pwsh, cmd, Git Bash.
@@ -56,12 +56,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: Komputer/kloud-kode-body/package-lock.json
+          cache-dependency-path: Komputer/klaud-kode-body/package-lock.json
       - name: Install workstation dependencies
-        working-directory: Komputer/kloud-kode-body
+        working-directory: Komputer/klaud-kode-body
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Test the Windows shells
-        working-directory: Komputer/kloud-kode-body
+        working-directory: Komputer/klaud-kode-body
         run: node --test test/windows-host.test.mjs
 
   # The Go rewrite lives beside the JavaScript implementation until it
@@ -103,7 +103,7 @@ jobs:
         run: |
           set -euo pipefail
           for target in linux/amd64 linux/arm64 windows/amd64 windows/arm64 darwin/amd64 darwin/arm64; do
-            GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 go build -o /dev/null ./cmd/kloud-kode
+            GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 go build -o /dev/null ./cmd/klaud-kode
             echo "ok ${target}"
           done
       - name: Check version consistency and the version command
@@ -113,6 +113,6 @@ jobs:
           set -euo pipefail
           version="$(tr -d '[:space:]' < VERSION)"
           [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "VERSION must look like v1.2.3, got '$version'" >&2; exit 1; }
-          out="$(go run -ldflags "-X github.com/DDD0s/Kloud-Kode/Komputer/internal/version.Value=$version" ./cmd/kloud-kode version)"
+          out="$(go run -ldflags "-X github.com/DDD0s/Klaud-Kode/Komputer/internal/version.Value=$version" ./cmd/klaud-kode version)"
           echo "$out"
-          [[ "$out" == "kloud-kode $version "* ]] || { echo "build metadata was not applied" >&2; exit 1; }
+          [[ "$out" == "klaud-kode $version "* ]] || { echo "build metadata was not applied" >&2; exit 1; }

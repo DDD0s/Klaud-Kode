@@ -1,6 +1,6 @@
 # 远程大脑设计（brain-in-a-vat / island mode）
 
-扫描基线：`main` `7cb0323`（PR #1 已合并）。API `kloud-kode-api` 0.10.0，工作站 `kloud-kode-body` 1.3.0。
+扫描基线：`main` `7cb0323`（PR #1 已合并）。API `klaud-kode-api` 0.10.0，工作站 `klaud-kode-body` 1.3.0。
 本文只记录目标、现状，以及远程大脑后续工作应遵守的判据。不改代码。
 
 `docs/FEATURES-inventory.md` 写于合并前的 `90753b7`，记录的是当时已经落地的设计：关掉官方内置工具，改走 MCP。它不是远程大脑完成与否的判据。本文用一条更高的判据回看这些做法：云端 CLI 里的模型必须认为自己正运行在调用者的本地电脑上。工具叫什么名字、由哪个后端承载，都排在这条判据之后。
@@ -83,7 +83,7 @@ agy 1.4.3 的已登录记录里，`run_command` 在 agy 所在主机上直接执
 
 ### 调用者机器上的执行底座
 
-Body 1.3.0 跑在调用者电脑上。`system_info` 报告这台机器的 `platform`、`osVersion`、时钟、时区、`defaultShell`、`availableShells`、控制台编码、根目录和限制。工具说明的测试要求不出现第二台机器（`kloud-kode-body/test/body.test.mjs`）。
+Body 1.3.0 跑在调用者电脑上。`system_info` 报告这台机器的 `platform`、`osVersion`、时钟、时区、`defaultShell`、`availableShells`、控制台编码、根目录和限制。工具说明的测试要求不出现第二台机器（`klaud-kode-body/test/body.test.mjs`）。
 
 Windows 上（`server.mjs` 的 `detectShells` / `powershellArgs`，CI 的 `test/windows-host.test.mjs`）：
 

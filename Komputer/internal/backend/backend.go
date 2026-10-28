@@ -6,7 +6,7 @@ package backend
 import (
 	"encoding/json"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/domain"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/domain"
 )
 
 // SessionMode says how a turn relates to the CLI's own session store.

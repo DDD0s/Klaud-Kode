@@ -1,13 +1,13 @@
 # Komputer
 
-这里是 Kloud Kode 的代码目录。项目介绍在 [仓库首页](../README.md)，第一次使用看 [安装步骤](SETUP.md)。
+这里是 Klaud Kode 的代码目录。项目介绍在 [仓库首页](../README.md)，第一次使用看 [安装步骤](SETUP.md)。
 
 ## 目录
 
 | 目录 | 做什么 | 运行位置 |
 | --- | --- | --- |
 | `komputer-api/` | 接收本地客户端的请求，调用官方 Claude Code（可选 Antigravity、Muse Code） | 远端主机 |
-| `kloud-kode-body/` | 文件、命令、进程和本机 MCP 工具 | 要操作的电脑；客户端自带工具时不必安装 |
+| `klaud-kode-body/` | 文件、命令、进程和本机 MCP 工具 | 要操作的电脑；客户端自带工具时不必安装 |
 | `komputer/` | Body 用的 SSH 隧道脚本 | 远端主机；仅 Body 模式需要 |
 | `komputer-session/` | Body 模式的 MCP 配置模板 | 复制到仓库外再填写 token |
 | `deploy/` | 更新已经配置好的远端安装 | 管理这套服务的电脑 |
@@ -22,7 +22,7 @@
 
 ```bash
 (cd komputer-api && npm ci --ignore-scripts && npm test)
-(cd kloud-kode-body && npm ci --ignore-scripts && npm test)
+(cd klaud-kode-body && npm ci --ignore-scripts && npm test)
 ```
 
 PowerShell 下分别进入两个目录，运行 `npm ci --ignore-scripts` 和 `npm test`。

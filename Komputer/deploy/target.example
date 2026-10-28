@@ -1,3 +1,3 @@
 # Copy to deploy/target and edit. Git-ignored.
 KOMPUTER_DEPLOY_HOST=box@brain
-KOMPUTER_REMOTE_DIR=/home/box/Kloud-Kode/Komputer/komputer-api
+KOMPUTER_REMOTE_DIR=/home/box/Klaud-Kode/Komputer/komputer-api

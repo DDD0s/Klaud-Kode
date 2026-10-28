@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/domain"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/domain"
 )
 
 type agyToolInfo struct {

@@ -31,7 +31,7 @@ export const MUSE_KEEP = new Set([
   "META_API_KEY",
   "FAKE_MUSE_STATE", // test double only
 ]);
-const RESERVED = /^(?:KOMPUTER_|BODY_|KLOUD_KODE_)|^(?:CLAUDE_BIN|AGY_BIN|MUSE_BIN|NODE_BIN|CI|GIT_CEILING_DIRECTORIES)$/i;
+const RESERVED = /^(?:KOMPUTER_|BODY_|KLAUD_KODE_)|^(?:CLAUDE_BIN|AGY_BIN|MUSE_BIN|NODE_BIN|CI|GIT_CEILING_DIRECTORIES)$/i;
 
 /** cwd must be the absolute, canonical working directory used by the child. */
 export function buildChildEnv(source, cwd, keep) {

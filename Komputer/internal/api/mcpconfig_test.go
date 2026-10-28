@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/config"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/config"
 )
 
 // The generated MCP file must carry the Body URL and its token, so a

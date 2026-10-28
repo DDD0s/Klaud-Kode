@@ -37,7 +37,7 @@ const KEEP = new Set([
 function expectedEnvKeys(source, { privateMcp = false } = {}) {
   const keys = new Set(["CI", "GIT_CEILING_DIRECTORIES"]);
   for (const [k, v] of Object.entries(source)) {
-    if (v === undefined || /^(?:KOMPUTER_|BODY_|KLOUD_KODE_)|^(?:CLAUDE_BIN|NODE_BIN|CI|GIT_CEILING_DIRECTORIES)$/i.test(k)) continue;
+    if (v === undefined || /^(?:KOMPUTER_|BODY_|KLAUD_KODE_)|^(?:CLAUDE_BIN|NODE_BIN|CI|GIT_CEILING_DIRECTORIES)$/i.test(k)) continue;
     if (KEEP.has(k.toUpperCase()) || /^(LC_|XDG_|PROCESSOR_)/.test(k)) keys.add(k);
   }
   const proxy = ["HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"].some((k) => source[k]);

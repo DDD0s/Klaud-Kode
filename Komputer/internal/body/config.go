@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/version"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/version"
 )
 
 // Version is the Body release reported to MCP clients and health checks.
@@ -65,13 +65,35 @@ type rawConfig struct {
 	BrainURL         string                  `json:"brainUrl"`
 }
 
-// ConfigPath returns the config file path (KLOUD_KODE_BODY_CONFIG wins).
+// getenv reads a KLAUD_KODE_* variable, falling back to the pre-rename
+// KLOUD_KODE_* spelling so an unattended machine's environment survives the
+// product rename without anyone editing it.
+func getenv(name string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	if strings.HasPrefix(name, "KLAUD_") {
+		return os.Getenv("KLOUD_" + strings.TrimPrefix(name, "KLAUD_"))
+	}
+	return ""
+}
+
+// ConfigPath returns the config file path (KLAUD_KODE_BODY_CONFIG wins). A
+// config left in the pre-rename directory is still honoured.
 func ConfigPath() string {
-	if p := os.Getenv("KLOUD_KODE_BODY_CONFIG"); p != "" {
+	if p := getenv("KLAUD_KODE_BODY_CONFIG"); p != "" {
 		return p
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".kloud-kode-body", "config.json")
+	current := filepath.Join(home, ".klaud-kode-body", "config.json")
+	if _, err := os.Stat(current); err == nil {
+		return current
+	}
+	legacy := filepath.Join(home, ".kloud-kode-body", "config.json")
+	if _, err := os.Stat(legacy); err == nil {
+		return legacy
+	}
+	return current
 }
 
 func expandHome(p string) string {
@@ -129,14 +151,14 @@ func LoadConfig() (Config, error) {
 	}
 	// Reaching the Body from another machine needs a reachable bind address.
 	// Loopback is still the default so a plain install stays unexposed.
-	if host := os.Getenv("KLOUD_KODE_BODY_HOST"); host != "" {
+	if host := getenv("KLAUD_KODE_BODY_HOST"); host != "" {
 		cfg.Host = host
 	}
-	if port := os.Getenv("KLOUD_KODE_BODY_PORT"); port != "" {
+	if port := getenv("KLAUD_KODE_BODY_PORT"); port != "" {
 		if parsed, err := strconv.Atoi(port); err == nil {
 			cfg.Port = parsed
 		} else {
-			return Config{}, fmt.Errorf("KLOUD_KODE_BODY_PORT is not a number: %q", port)
+			return Config{}, fmt.Errorf("KLAUD_KODE_BODY_PORT is not a number: %q", port)
 		}
 	}
 	if raw.DefaultRoot != "" {
@@ -177,11 +199,11 @@ func LoadConfig() (Config, error) {
 	if cfg.DefaultRoot == "" {
 		return Config{}, fmt.Errorf("config needs at least one entry in `roots`")
 	}
-	cfg.Token = os.Getenv("KLOUD_KODE_BODY_TOKEN")
+	cfg.Token = getenv("KLAUD_KODE_BODY_TOKEN")
 	if cfg.Token == "" {
 		cfg.Token = raw.Token
 	}
-	cfg.BrainURL = os.Getenv("KLOUD_KODE_BRAIN_URL")
+	cfg.BrainURL = getenv("KLAUD_KODE_BRAIN_URL")
 	if cfg.BrainURL == "" {
 		cfg.BrainURL = raw.BrainURL
 	}

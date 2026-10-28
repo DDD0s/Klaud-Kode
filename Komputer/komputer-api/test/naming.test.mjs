@@ -26,11 +26,11 @@ test("all current project source paths and contents exclude the retired internal
   const files = sourceFiles();
   assert.ok(files.includes("komputer-api/server.mjs"));
   assert.ok(files.includes("komputer-session/.mcp.json"));
-  assert.ok(files.includes("kloud-kode-body/server.mjs"));
-  const manifest = JSON.parse(fs.readFileSync(path.join(project, "kloud-kode-body/package.json"), "utf8"));
-  const lock = JSON.parse(fs.readFileSync(path.join(project, "kloud-kode-body/package-lock.json"), "utf8"));
-  assert.equal(manifest.name, "kloud-kode-body");
-  assert.deepEqual(manifest.bin, { "kloud-kode-body": "server.mjs" });
+  assert.ok(files.includes("klaud-kode-body/server.mjs"));
+  const manifest = JSON.parse(fs.readFileSync(path.join(project, "klaud-kode-body/package.json"), "utf8"));
+  const lock = JSON.parse(fs.readFileSync(path.join(project, "klaud-kode-body/package-lock.json"), "utf8"));
+  assert.equal(manifest.name, "klaud-kode-body");
+  assert.deepEqual(manifest.bin, { "klaud-kode-body": "server.mjs" });
   assert.equal(lock.version, manifest.version);
   assert.equal(lock.packages[""].version, manifest.version);
   assert.deepEqual(lock.packages[""].bin, manifest.bin);

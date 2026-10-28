@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/backend"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/config"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/backend"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/config"
 )
 
 // A denied work directory must not stop the service: it falls back beside the

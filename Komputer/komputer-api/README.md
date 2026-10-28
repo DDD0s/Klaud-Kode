@@ -176,7 +176,7 @@ Claude Code 自身的提示、用户配置、memory 或 skills 仍可能带入�
 | 变量 | 默认值 | 用途 |
 | --- | --- | --- |
 | `KOMPUTER_API_HOST` / `KOMPUTER_API_PORT` | `127.0.0.1` / `18888` | 监听地址和端口；地址可逗号分隔，也可写 `host:port` |
-| `KLOUD_KODE_VERSION` / `KLOUD_KODE_BIN` / `KLOUD_KODE_BUILD` | `Komputer/VERSION` / 无 / 无 | 固定 Release 版本、指定已有二进制，或以 `1` 从源码构建；正常运行不需要 Go |
+| `KLAUD_KODE_VERSION` / `KLAUD_KODE_BIN` / `KLAUD_KODE_BUILD` | `Komputer/VERSION` / 无 / 无 | 固定 Release 版本、指定已有二进制，或以 `1` 从源码构建；正常运行不需要 Go |
 | `KOMPUTER_IMPL` | `go` | 设为 `node` 时回退运行 `server.mjs` |
 | `KOMPUTER_WORKSPACE_ROOT` | `~/.komputer/workspaces` | 各 CLI 工作目录的父目录；家目录受保护或想放数据盘时指定 |
 | `KOMPUTER_BACKENDS` | `claude` | 开启的后端，逗号分隔：`claude`、`antigravity`、`muse` |

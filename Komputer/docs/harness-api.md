@@ -5,7 +5,7 @@
 | 请求 | 执行路径 |
 | --- | --- |
 | 提供非空 `tools` 或显式 `tool_choice` | 真实 MCP 调用通过 API 返回，本地 harness 执行并回传结果；不需要 Body 隧道 |
-| 不提供客户端工具 | 保留官方 CLI → 本地 `kloud-kode-body` 的 MCP 路径，需要私网或后台隧道 |
+| 不提供客户端工具 | 保留官方 CLI → 本地 `klaud-kode-body` 的 MCP 路径，需要私网或后台隧道 |
 
 同一个客户端工具不会同时在两条路径执行。harness 模式关闭远端内置工具，MCP 配置只包含本次客户端工具。
 

@@ -44,7 +44,7 @@ done
 version_file="$(cd .. && pwd)/VERSION"
 if [[ -f "$version_file" ]]; then
   wanted="$(tr -d '[:space:]' < "$version_file")"
-  if ! curl -fsSL --max-time 10 -o /dev/null "https://github.com/${KLOUD_KODE_REPO:-DDD0s/Kloud-Kode}/releases/download/$wanted/SHA256SUMS"; then
+  if ! curl -fsSL --max-time 10 -o /dev/null "https://github.com/${KLAUD_KODE_REPO:-DDD0s/Klaud-Kode}/releases/download/$wanted/SHA256SUMS"; then
     echo "release $wanted has no SHA256SUMS yet; publish the tag before deploying" >&2
     git -C "$REPO" reset -q --hard "$prev"
     exit 1

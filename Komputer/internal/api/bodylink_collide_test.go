@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/config"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/config"
 	"github.com/coder/websocket"
 )
 

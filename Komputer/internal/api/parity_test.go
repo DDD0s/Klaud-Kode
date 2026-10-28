@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/version"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/version"
 )
 
 // Clients percent-encode session ids; the id must resolve after decoding, and a

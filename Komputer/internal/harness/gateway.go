@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/domain"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/domain"
 )
 
 // MCPServer describes the per-run loopback MCP server handed to a backend.

@@ -3,7 +3,7 @@
 #
 # Usage: stage-launch.sh <stage-dir> <command> [args...]
 #
-# The stage directory comes from "kloud-kode identity stage". This script
+# The stage directory comes from "klaud-kode identity stage". This script
 # enters fresh namespaces and lays the staged files over the real ones, so
 # every probe the command makes -- hostname, /etc/machine-id, /etc/os-release,
 # /proc/cpuinfo, /proc/meminfo, /sys/class/dmi, /etc/localtime -- answers with

@@ -7,9 +7,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/childenv"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/config"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/domain"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/childenv"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/config"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/domain"
 )
 
 var claudeEffortLevels = map[string]bool{"low": true, "medium": true, "high": true, "xhigh": true, "max": true}

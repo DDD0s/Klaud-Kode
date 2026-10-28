@@ -154,7 +154,7 @@ agy 的 MCP 有一处与 Claude 不同，已用真实 agy 1.4.3 确认：MCP 工
 或客户端的 `<env>` 得知。Body 模式下命令经 Body 的 `run_command` 在 cmd、PowerShell 或 Git Bash 里运行，harness 模式下由客户端自己的工具执行，
 路径直接是 Windows 路径，不需要映射。
 Body 这边为 Windows 做的处理（PowerShell 5.1 的纯文本错误和表格宽度、cmd 的 UTF-8、`idleTimeoutMs`）见
-[kloud-kode-body README](../kloud-kode-body/README.md)，在 CI 的 Windows 主机上测试（`workstation-windows` 任务，`test/windows-host.test.mjs`）。
+[klaud-kode-body README](../klaud-kode-body/README.md)，在 CI 的 Windows 主机上测试（`workstation-windows` 任务，`test/windows-host.test.mjs`）。
 
 ### 可选：agy 的内置工具在用户电脑上执行（实验）
 

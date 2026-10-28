@@ -1,0 +1,16 @@
+refactor: rename the product from Kloud Kode to Klaud Kode
+
+The old name collides with an existing training company's name, so the
+repository was renamed on GitHub and every in-repo surface follows:
+module path, command and Body directories, binary name, release assets,
+launcher download defaults, health/reporting strings, MCP server names and
+documentation.
+
+Deployed machines keep working without a config touch: previous
+KLOUD_KODE_* environment values remain as read-only fallbacks in the Body
+config loader and both launchers, the pre-rename body config directory is
+still honoured, and the childenv reserved-key filter matches both prefixes
+so secrets set under the old names do not leak into child processes.
+
+No behaviour change beyond names; VERSION bumped to 1.4.0 to make the
+rename visible in version output and release assets.

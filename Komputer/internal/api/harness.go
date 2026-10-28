@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/domain"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/harness"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/domain"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/harness"
 )
 
 func (s *Server) harnessContext(r *http.Request, rb *requestBody, messages []domain.Message, protocol string) harness.Context {

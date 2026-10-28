@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/identity"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/identity"
 )
 
 func newTestService(t *testing.T) (*Service, string) {

@@ -1,6 +1,6 @@
 # komputer 命名与目录迁移
 
-产品仍叫 **Kloud Kode by Kosmolopic**。内部命名统一为 **komputer**，本次为 0.8.0。
+产品仍叫 **Klaud Kode by Kosmolopic**。内部命名统一为 **komputer**，本次为 0.8.0。
 这是强制迁移：不保留此前名称的环境变量、模型、请求头或 JSON 别名。
 
 ## 工程位置
@@ -12,7 +12,7 @@ Komputer/
   komputer-api/       客户端入口与测试
   komputer-session/   MCP 配置模板
   komputer/           隧道脚本
-  kloud-kode-body/     工作站执行器
+  klaud-kode-body/     工作站执行器
   deploy/            部署脚本
   docs/              设计与验证说明
   README.md
@@ -33,15 +33,15 @@ Komputer/
 | 项目专用 JSON | `komputer_session`、`komputer_conversation_id`、`komputer_ephemeral` |
 | 元数据 | `owned_by: komputer`、health 服务名 `komputer-api` |
 | MCP 服务名 | `komputer_use`，保持不变 |
-| 工作站执行器 | 目录/命令 `kloud-kode-body`，默认配置 `~/.kloud-kode-body/config.json` |
-| 执行器环境变量 | `KLOUD_KODE_BODY_CONFIG`、`KLOUD_KODE_BODY_TOKEN` |
+| 工作站执行器 | 目录/命令 `klaud-kode-body`，默认配置 `~/.klaud-kode-body/config.json` |
+| 执行器环境变量 | `KLAUD_KODE_BODY_CONFIG`、`KLAUD_KODE_BODY_TOKEN` |
 | 运行目录 | 默认 `~/.komputer/workspaces/<实例摘要>`；可显式设置 `KOMPUTER_CLAUDE_CWD` |
 
 `BODY_SSH`、Body 的配置字段、官方 CLI 自身的环境变量与标准 OpenAI/Anthropic 协议字段不改名。
 专用字段升级不意味着更改这些第三方约定。
 
 执行器的此前默认配置目录不会自动搬迁，也不读取此前环境变量别名。请安全迁移原有配置到新的
-`.kloud-kode-body/config.json`，或用 `KLOUD_KODE_BODY_CONFIG` 显式指定确认过的配置文件；
+`.klaud-kode-body/config.json`，或用 `KLAUD_KODE_BODY_CONFIG` 显式指定确认过的配置文件；
 同时更新启动命令、任务路径和 token 环境变量。没有迁移凭据时服务会因缺少 token 拒绝启动。
 本次未移动用户目录中的真实配置，也未重启已部署执行器。
 
@@ -81,7 +81,7 @@ Komputer/
 6 个 shell 脚本的 Git 可执行位保持 `100755`；它们已单独暂存，以免 Windows 下重新添加时丢失执行属性。
 这些记录属于命名迁移阶段；0.9.0 进一步实现了 harness 工具协议与公网 HTTPS，未部署到实际主机。
 
-运行 `cd Komputer/komputer-api && npm test` 以及 `cd Komputer/kloud-kode-body && npm test`。
+运行 `cd Komputer/komputer-api && npm test` 以及 `cd Komputer/klaud-kode-body && npm test`。
 覆盖：原有行为、命名零残留、对外元数据、独立默认 cwd、Git Bash 语法、跨布局部署/回滚的拒绝路径。
 Body 命名调整另覆盖配置变量、token 覆盖、命令环境中的凭据移除，以及 npm 命令入口和锁文件一致性；
 打包 dry-run 通过，没有发布包。日常入口确定为本地 harness 经 API 接入，SSH 直连仅作备选。

@@ -1,4 +1,4 @@
-// Command kloud-kode is the single Kloud Kode binary. This rewrite slice
+// Command klaud-kode is the single Klaud Kode binary. This rewrite slice
 // implements the api and body subcommands; helper subcommands land in
 // later slices behind the same entrypoint.
 package main
@@ -12,26 +12,26 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/api"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/backend"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/body"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/childenv"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/config"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/version"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/api"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/backend"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/body"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/childenv"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/config"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/version"
 )
 
 func printVersion() {
-	fmt.Printf("kloud-kode %s (commit %s, built %s)\n", version.Value, version.Commit, version.Date)
+	fmt.Printf("klaud-kode %s (commit %s, built %s)\n", version.Value, version.Commit, version.Date)
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: kloud-kode <api|body|bridge|hook|shim|identity|version>")
+	fmt.Fprintln(os.Stderr, "usage: klaud-kode <api|body|bridge|hook|shim|identity|version>")
 	fmt.Fprintln(os.Stderr, "identity: capture|apply|qemu|show - copy this machine's identity to the brain")
 }
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "kloud-kode:", err)
+		fmt.Fprintln(os.Stderr, "klaud-kode:", err)
 		os.Exit(1)
 	}
 }

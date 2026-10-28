@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/childenv"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/config"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/childenv"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/config"
 )
 
 const testKey = "sk-go-rewrite-test-key-0123456789"

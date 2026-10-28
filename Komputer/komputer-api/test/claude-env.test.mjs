@@ -14,7 +14,7 @@ test("child retains certificates, login paths, timeouts and shell settings witho
     "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
   ].map((name) => [name, `fixture-${name}`]));
   const out = buildClaudeEnv({ ...essentials,
-    KOMPUTER_KEYS_FILE: "private", BODY_SSH: "private", KLOUD_KODE_TOKEN: "private",
+    KOMPUTER_KEYS_FILE: "private", BODY_SSH: "private", KLAUD_KODE_TOKEN: "private",
     CUSTOM_SECRET: "private", CLAUDE_BIN: "private", NODE_BIN: "private", NODE_OPTIONS: "--inspect",
     CLAUDE_UNKNOWN_SECRET: "private", ANTHROPIC_UNKNOWN_SECRET: "private",
   }, cwd);

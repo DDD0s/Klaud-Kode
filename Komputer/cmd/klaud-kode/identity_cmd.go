@@ -5,10 +5,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/identity"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/identity"
 )
 
-// runIdentity implements: kloud-kode identity <capture|apply|qemu|stage|show> [flags]
+// runIdentity implements: klaud-kode identity <capture|apply|qemu|stage|show> [flags]
 //
 // capture runs on the caller's own computer and records its machine identity.
 // apply runs on the brain (Linux guest) and makes that guest report the
@@ -16,7 +16,7 @@ import (
 // for the same profile.
 func runIdentity(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: kloud-kode identity <capture|apply|qemu|stage|show> [flags]")
+		return fmt.Errorf("usage: klaud-kode identity <capture|apply|qemu|stage|show> [flags]")
 	}
 	switch args[0] {
 	case "capture":

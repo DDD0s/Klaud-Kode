@@ -82,10 +82,10 @@ export async function apiFixture(t, { env: extra = {}, prepare = () => {} } = {}
   };
 }
 
-const BODY_PKG = path.join(here, "..", "..", "kloud-kode-body");
+const BODY_PKG = path.join(here, "..", "..", "klaud-kode-body");
 export const haveBody = fs.existsSync(path.join(BODY_PKG, "node_modules", "@modelcontextprotocol", "sdk"));
 
-/** A real kloud-kode-body on a temporary root, standing in for the user's computer. */
+/** A real klaud-kode-body on a temporary root, standing in for the user's computer. */
 export async function realBody(t) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "komputer-user-pc-"));
   const root = path.join(tmp, "root");
@@ -95,8 +95,8 @@ export async function realBody(t) {
   const token = "u".repeat(48);
   const port = 21000 + Math.floor(Math.random() * 15000);
   fs.writeFileSync(path.join(tmp, "config.json"), JSON.stringify({ port, host: "127.0.0.1", roots: { project: root }, defaultRoot: "project", token }));
-  const env = { ...process.env, KLOUD_KODE_BODY_CONFIG: path.join(tmp, "config.json") };
-  delete env.KLOUD_KODE_BODY_TOKEN;
+  const env = { ...process.env, KLAUD_KODE_BODY_CONFIG: path.join(tmp, "config.json") };
+  delete env.KLAUD_KODE_BODY_TOKEN;
   const proc = spawn(process.execPath, [path.join(BODY_PKG, "server.mjs"), "http"], { env, stdio: ["ignore", "pipe", "pipe"] });
   t.after(() => {
     proc.kill();

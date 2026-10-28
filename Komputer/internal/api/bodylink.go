@@ -102,7 +102,7 @@ func (l *bodyLink) rejectAuth(w http.ResponseWriter, r *http.Request, what strin
 	if s.cfg.AuthFailDelay > 0 {
 		time.Sleep(s.cfg.AuthFailDelay)
 	}
-	w.Header().Set("WWW-Authenticate", "Bearer realm=\"kloud-kode-body\"")
+	w.Header().Set("WWW-Authenticate", "Bearer realm=\"klaud-kode-body\"")
 	writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid token"}, nil)
 }
 

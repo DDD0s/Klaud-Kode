@@ -1,4 +1,4 @@
-# 安装 Kloud Kode
+# 安装 Klaud Kode
 
 这份文档按“远端 Linux 主机运行 Claude Code，本地电脑发消息和执行工具”来写。
 远端可以是云服务器，也可以是另一台自己的电脑。下面的远端命令使用 Bash。
@@ -9,7 +9,7 @@
 ## 准备
 
 远端需要 Git、Bash、curl，以及已经登录的官方 Claude Code。不需要安装 Go：`start.sh` 会按 `Komputer/VERSION` 从 GitHub Releases 下载对应平台的预编译二进制，并校验 SHA-256。
-只有从源码开发或设置 `KLOUD_KODE_BUILD=1` 时才需要 Go 1.27 以上。旧的 JavaScript 实现仍留在仓库里，`KOMPUTER_IMPL=node` 可以回退运行它，那时才需要 Node.js 20 以上。
+只有从源码开发或设置 `KLAUD_KODE_BUILD=1` 时才需要 Go 1.27 以上。旧的 JavaScript 实现仍留在仓库里，`KOMPUTER_IMPL=node` 可以回退运行它，那时才需要 Node.js 20 以上。
 
 Claude Code 按 [官方安装说明](https://code.claude.com/docs/en/setup) 安装。
 用准备运行服务的普通用户执行下面两条命令，确认能启动并完成登录，不要用 root 跑服务：
@@ -28,12 +28,12 @@ claude
 ## 1. 远端：下载代码
 
 ```bash
-git clone https://github.com/DDD0s/Kloud-Kode.git
-cd Kloud-Kode/Komputer/komputer-api
+git clone https://github.com/DDD0s/Klaud-Kode.git
+cd Klaud-Kode/Komputer/komputer-api
 cp env.example env
 ```
 
-`start.sh` 第一次启动时下载预编译二进制到 `komputer-api/bin/`，校验 SHA-256，并在 `Komputer/VERSION` 变化时换用新版本；旧版本文件保留，正在运行的进程不会被覆盖。用 `KLOUD_KODE_VERSION=vX.Y.Z` 可以固定版本，`KLOUD_KODE_BIN` 可以指定已有二进制，`KLOUD_KODE_BUILD=1` 则改为从当前源码构建。
+`start.sh` 第一次启动时下载预编译二进制到 `komputer-api/bin/`，校验 SHA-256，并在 `Komputer/VERSION` 变化时换用新版本；旧版本文件保留，正在运行的进程不会被覆盖。用 `KLAUD_KODE_VERSION=vX.Y.Z` 可以固定版本，`KLAUD_KODE_BIN` 可以指定已有二进制，`KLAUD_KODE_BUILD=1` 则改为从当前源码构建。
 下载需要 `curl`，Windows 上解压还需要 `unzip`（Git for Windows 自带）。
 
 下面的远端命令都在 `komputer-api` 目录执行。已有安装不要直接覆盖 `env`，升级说明见
@@ -128,7 +128,7 @@ KOMPUTER_API_HOST=0.0.0.0
 本地客户端填大脑的内网 IP，例如 `http://100.64.0.7:18888/v1`。
 有防火墙就只放行内网网段，不要顺带打开公网。
 
-Body 也可以走同一个内网，不再需要 SSH 隧道：Body 的 `config.json` 把 `host` 改成内网地址（或设 `KLOUD_KODE_BODY_HOST`），
+Body 也可以走同一个内网，不再需要 SSH 隧道：Body 的 `config.json` 把 `host` 改成内网地址（或设 `KLAUD_KODE_BODY_HOST`），
 远端 `env` 设置 `KOMPUTER_BODY_URL`，MCP 配置会自动生成：
 
 ```bash
@@ -169,7 +169,7 @@ Messages 的完整请求地址是 `/v1/messages`。不同客户端是否自动�
 
 ### 本地电脑
 
-按 [Body 安装步骤](kloud-kode-body/README.md) 配置并启动服务，默认监听 `127.0.0.1:8787`。
+按 [Body 安装步骤](klaud-kode-body/README.md) 配置并启动服务，默认监听 `127.0.0.1:8787`。
 记下 Body token。它和 API key 是两把不同的钥匙。
 
 ### 让大脑连到 Body：Body 主动拨入（推荐，尤其异地）
@@ -190,7 +190,7 @@ KOMPUTER_BODY_TOKEN=和 Body 相同的 token
 .\start.ps1 connect --to https://你的大脑域名
 ```
 
-或在 `config.json` 里写 `"brainUrl": "wss://你的大脑域名"` 后直接运行 `kloud-kode body connect`。
+或在 `config.json` 里写 `"brainUrl": "wss://你的大脑域名"` 后直接运行 `klaud-kode body connect`。
 连接断了会一直自动重连（退避到 30 秒）；这台电脑不需要任何入站端口，也不需要 SSH。
 远端 `/healthz` 的 `body_connected` 为 `true` 就连上了。MCP 配置自动生成，不用做下面
 「远端 MCP 配置」一节的模板步骤。
@@ -200,8 +200,8 @@ KOMPUTER_BODY_TOKEN=和 Body 相同的 token
 这台电脑没人管的话，要保证重启后它自己回来。Windows 下用一个计划任务：
 
 ```powershell
-schtasks /Create /TN "KloudKodeBody" /SC ONLOGON /RL LIMITED `
-  /TR "powershell -NoProfile -WindowStyle Hidden -Command Set-Location 'C:\Kloud-Kode\Komputer\kloud-kode-body'; .\start.ps1 connect"
+schtasks /Create /TN "KlaudKodeBody" /SC ONLOGON /RL LIMITED `
+  /TR "powershell -NoProfile -WindowStyle Hidden -Command Set-Location 'C:\Klaud-Kode\Komputer\klaud-kode-body'; .\start.ps1 connect"
 ```
 
 计划任务里把大脑地址写进参数或 `config.json` 的 `brainUrl`，因为没有控制台可输。

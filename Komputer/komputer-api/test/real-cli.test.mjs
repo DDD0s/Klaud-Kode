@@ -102,7 +102,7 @@ test("real agy (signed out): bridge registration and Body MCP handshake, then 50
 
 // The real agy, signed out but pointed at a fake Gemini API, with a real Body standing in for
 // the user's computer: agy's own run_command and file tools must act on the Body, not here.
-test("real agy (Gemini API key, fake API): run_command and file tools act on the user's computer", { skip: (!AGY && "set KOMPUTER_TEST_REAL_AGY") || (!haveBody && "kloud-kode-body dependencies are not installed"), timeout: 180_000 }, async (t) => {
+test("real agy (Gemini API key, fake API): run_command and file tools act on the user's computer", { skip: (!AGY && "set KOMPUTER_TEST_REAL_AGY") || (!haveBody && "klaud-kode-body dependencies are not installed"), timeout: 180_000 }, async (t) => {
   const body = await realBody(t);
   const modes = ["commands", ...((await fuseMissing("python3")).length ? [] : ["all"])];
   const call = (name, args) => [{ functionCall: { name, args } }];
@@ -186,7 +186,7 @@ test("real agy (Gemini API key, fake API): harness turn: lazy schema read, the c
   assert.match(responses.at(-1), /d---- src/, "the client's result reached agy");
 });
 
-test("real agy (Gemini API key, fake API): Body turn by default: agy's own tools off, the computer through komputer_use", { skip: (!AGY && "set KOMPUTER_TEST_REAL_AGY") || (!haveBody && "kloud-kode-body dependencies are not installed"), timeout: 180_000 }, async (t) => {
+test("real agy (Gemini API key, fake API): Body turn by default: agy's own tools off, the computer through komputer_use", { skip: (!AGY && "set KOMPUTER_TEST_REAL_AGY") || (!haveBody && "klaud-kode-body dependencies are not installed"), timeout: 180_000 }, async (t) => {
   const body = await realBody(t);
   const gemini = await fakeGemini(t, [
     [{ functionCall: { name: "run_command", args: { CommandLine: "ls", toolSummary: "list", WaitMsBeforeAsync: 5000 } } }],

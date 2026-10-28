@@ -1,9 +1,15 @@
-# Start the Kloud Kode Body on this computer.
+# Start the Klaud Kode Body on this computer.
 # Runs a checksum-verified precompiled release; no Go toolchain is needed.
-# KLOUD_KODE_BUILD=1 builds from this checkout instead.
+# KLAUD_KODE_BUILD=1 builds from this checkout instead.
 $ErrorActionPreference = "Stop"
 $Dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Module = Split-Path -Parent $Dir
+# Pre-rename variable names still work, so an untouched setup keeps working.
+foreach ($name in @("BIN", "VERSION", "REPO", "RELEASE_BASE", "BUILD")) {
+  if (-not (Get-Item "Env:KLAUD_KODE_$name" -ErrorAction SilentlyContinue) -and (Get-Item "Env:KLOUD_KODE_$name" -ErrorAction SilentlyContinue)) {
+    Set-Item "Env:KLAUD_KODE_$name" (Get-Item "Env:KLOUD_KODE_$name").Value
+  }
+}
 $Mode = if ($args.Count -ge 1) { $args[0] } else { "http" }
 $Rest = if ($args.Count -gt 1) { $args[1..($args.Count - 1)] } else { @() }
 
@@ -25,34 +31,34 @@ function Get-Sha256([string] $Path) {
 }
 
 function Prepare-Binary {
-  if ($env:KLOUD_KODE_BIN) {
-    if (-not (Test-Path $env:KLOUD_KODE_BIN)) { throw "KLOUD_KODE_BIN does not exist: $env:KLOUD_KODE_BIN" }
-    return (Resolve-Path $env:KLOUD_KODE_BIN).Path
+  if ($env:KLAUD_KODE_BIN) {
+    if (-not (Test-Path $env:KLAUD_KODE_BIN)) { throw "KLAUD_KODE_BIN does not exist: $env:KLAUD_KODE_BIN" }
+    return (Resolve-Path $env:KLAUD_KODE_BIN).Path
   }
-  $version = $env:KLOUD_KODE_VERSION
+  $version = $env:KLAUD_KODE_VERSION
   if (-not $version -and (Test-Path (Join-Path $Module "VERSION"))) { $version = (Get-Content (Join-Path $Module "VERSION") -Raw).Trim() }
-  $repo = if ($env:KLOUD_KODE_REPO) { $env:KLOUD_KODE_REPO } else { "DDD0s/Kloud-Kode" }
+  $repo = if ($env:KLAUD_KODE_REPO) { $env:KLAUD_KODE_REPO } else { "DDD0s/Klaud-Kode" }
   if (-not $version -or $version -eq "latest") {
     $version = (Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -UseBasicParsing).tag_name
   }
   $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }
   $binDir = Join-Path $Dir "bin"
-  $bin = Join-Path $binDir "kloud-kode-$version.exe"
+  $bin = Join-Path $binDir "klaud-kode-$version.exe"
   if (Test-Path $bin) { return $bin }
-  if ($env:KLOUD_KODE_BUILD -eq "1") {
-    if (-not (Get-Command go -ErrorAction SilentlyContinue)) { throw "KLOUD_KODE_BUILD=1 needs go on PATH" }
+  if ($env:KLAUD_KODE_BUILD -eq "1") {
+    if (-not (Get-Command go -ErrorAction SilentlyContinue)) { throw "KLAUD_KODE_BUILD=1 needs go on PATH" }
     Write-Host "building $bin from source"
     Push-Location $Module
-    try { & go build -trimpath -ldflags "-X github.com/DDD0s/Kloud-Kode/Komputer/internal/version.Value=$version" -o $bin ./cmd/kloud-kode } finally { Pop-Location }
+    try { & go build -trimpath -ldflags "-X github.com/DDD0s/Klaud-Kode/Komputer/internal/version.Value=$version" -o $bin ./cmd/klaud-kode } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { throw "go build failed" }
     return $bin
   }
-  $base = if ($env:KLOUD_KODE_RELEASE_BASE) { $env:KLOUD_KODE_RELEASE_BASE } else { "https://github.com/$repo/releases" }
-  $asset = "kloud-kode-$version-windows-$arch.zip"
+  $base = if ($env:KLAUD_KODE_RELEASE_BASE) { $env:KLAUD_KODE_RELEASE_BASE } else { "https://github.com/$repo/releases" }
+  $asset = "klaud-kode-$version-windows-$arch.zip"
   $tmp = Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString("N"))
   New-Item -ItemType Directory -Force $tmp | Out-Null
   try {
-    Write-Host "downloading Kloud Kode $version (windows/$arch)"
+    Write-Host "downloading Klaud Kode $version (windows/$arch)"
     Invoke-WebRequest "$base/download/$version/$asset" -OutFile (Join-Path $tmp $asset) -UseBasicParsing
     Invoke-WebRequest "$base/download/$version/SHA256SUMS" -OutFile (Join-Path $tmp "SHA256SUMS") -UseBasicParsing
     $expected = ((Get-Content (Join-Path $tmp "SHA256SUMS") | Where-Object { $_ -match [regex]::Escape($asset) }) -split "\s+")[0]
@@ -62,7 +68,7 @@ function Prepare-Binary {
     Write-Host "$asset`: OK"
     Expand-Archive (Join-Path $tmp $asset) (Join-Path $tmp "extract") -Force
     New-Item -ItemType Directory -Force $binDir | Out-Null
-    Copy-Item (Join-Path $tmp "extract\kloud-kode.exe") $bin -Force
+    Copy-Item (Join-Path $tmp "extract\klaud-kode.exe") $bin -Force
     & $bin version | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "the downloaded binary does not run" }
   } finally { Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue }

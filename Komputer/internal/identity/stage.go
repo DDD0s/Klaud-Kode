@@ -142,7 +142,7 @@ func osReleaseContent(p Profile) string {
 	if p.OS.Version != "" {
 		b.WriteString("VERSION_ID=\"" + p.OS.Version + "\"\n")
 	}
-	b.WriteString("ID=kloud\n")
+	b.WriteString("ID=klaud\n")
 	return b.String()
 }
 

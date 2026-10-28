@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/domain"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/domain"
 )
 
 // Record is one client conversation mapping.

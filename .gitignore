@@ -8,14 +8,17 @@ logs/
 .codegraph/
 .deploy-prev
 
-# Built from Komputer/cmd/kloud-kode by start.sh (deploy and local runs).
-Komputer/kloud-kode
-Komputer/kloud-kode.exe
-Komputer/komputer-api/kloud-kode
-Komputer/komputer-api/kloud-kode.exe
-Komputer/kloud-kode-body/kloud-kode
-Komputer/kloud-kode-body/kloud-kode.exe
+# Built from Komputer/cmd/klaud-kode by start.sh (deploy and local runs).
+Komputer/klaud-kode
+Komputer/klaud-kode.exe
+Komputer/komputer-api/klaud-kode
+Komputer/komputer-api/klaud-kode.exe
+Komputer/klaud-kode-body/klaud-kode
+Komputer/klaud-kode-body/klaud-kode.exe
 # Versioned release binaries installed by the launchers.
 Komputer/komputer-api/bin/
+Komputer/klaud-kode-body/bin/
+Komputer/komputer-api/.klaud-kode-version
 Komputer/kloud-kode-body/bin/
+Komputer/komputer-api/kloud-kode*
 Komputer/komputer-api/.kloud-kode-version

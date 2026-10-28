@@ -23,7 +23,7 @@ SSH 直连 CLI 是可选用法，后台工具隧道则是另外一回事。
 | `komputer-api/backends/` | 各 CLI 后端：参数、stdin、输出解析、错误分类和按模型名路由 |
 | `komputer-api/responses.mjs` | Responses API 的请求转换、事件流和回复存储 |
 | `komputer-api/claude-env.mjs` | 各 CLI 子进程的环境变量名单 |
-| `kloud-kode-body/server.mjs` | 本地文件、命令、进程和其他 MCP 服务 |
+| `klaud-kode-body/server.mjs` | 本地文件、命令、进程和其他 MCP 服务 |
 | `komputer/tunnel-up.sh` | Body 模式的 SSH 转发 |
 | `komputer-session/` | Body 模式的配置模板 |
 | `deploy/` | 更新已有远端安装的脚本 |
@@ -35,7 +35,7 @@ SSH 直连 CLI 是可选用法，后台工具隧道则是另外一回事。
 
 ## 改动时注意
 
-- 产品名是 Kloud Kode by Kosmolopic，内部名称是 `komputer`，本地执行器是 `kloud-kode-body`。
+- 产品名是 Klaud Kode by Kosmolopic，内部名称是 `komputer`，本地执行器是 `klaud-kode-body`。
   官方 Claude Code 和 `claude` 命令保持原名。不要恢复已移除的旧名称或别名。
 - Claude 的正常工作目录在仓库外。不要为了省配置把 cwd 改回工程目录。
 - API 调用官方 CLI，不自行读取、复制或转发它的登录文件，也不实现账号池。
@@ -64,7 +64,7 @@ go test ./...
 
 ```bash
 (cd komputer-api && npm ci --ignore-scripts && npm test)
-(cd kloud-kode-body && npm ci --ignore-scripts && npm test)
+(cd klaud-kode-body && npm ci --ignore-scripts && npm test)
 ```
 
 PowerShell 下同样在 `Komputer/` 目录执行 `go test ./...`，再分别进入两个目录运行 npm 命令。

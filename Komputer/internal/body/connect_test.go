@@ -41,7 +41,7 @@ func TestConnectURLRejectsPublicPlaintext(t *testing.T) {
 			t.Errorf("private plaintext %q rejected: %v", ok, err)
 		}
 	}
-	t.Setenv("KLOUD_KODE_BRAIN_ALLOW_PLAINTEXT", "1")
+	t.Setenv("KLAUD_KODE_BRAIN_ALLOW_PLAINTEXT", "1")
 	if _, err := connectURL("http://brain.example:18888"); err != nil {
 		t.Errorf("explicit opt-in rejected: %v", err)
 	}

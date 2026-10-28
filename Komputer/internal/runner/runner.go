@@ -13,9 +13,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/backend"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/childenv"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/domain"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/backend"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/childenv"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/domain"
 )
 
 // Runner runs backend CLI processes with a shared timeout and source env.

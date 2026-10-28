@@ -8,7 +8,7 @@
 # so what runs there is always a real commit, and a rollback is a git reset.
 #
 # Runs from Windows Git Bash or Linux. Needs ssh to the brain to work, and Go
-# on both ends: the brain builds Komputer/cmd/kloud-kode from source.
+# on both ends: the brain builds Komputer/cmd/klaud-kode from source.
 # Set KOMPUTER_DEPLOY_HOST / KOMPUTER_REMOTE_DIR, or put them in deploy/target.
 set -euo pipefail
 

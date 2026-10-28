@@ -12,7 +12,7 @@ import (
 )
 
 // Schema is the on-disk profile version. Bump on any incompatible field change.
-const Schema = "kloud-kode/machine-identity/1"
+const Schema = "klaud-kode/machine-identity/1"
 
 // Profile is one real machine's identity, captured on that machine and applied
 // on the brain. It carries hardware serials, so treat it as a secret file.

@@ -557,7 +557,7 @@ func Load(source map[string]string) (Config, error) {
 	if cfg.Home == "" {
 		cfg.Home, _ = os.UserHomeDir()
 	}
-	selfExe := e.get("KLOUD_KODE_BIN", "")
+	selfExe := e.get("KLAUD_KODE_BIN", "")
 	if selfExe == "" {
 		selfExe, _ = os.Executable()
 	}

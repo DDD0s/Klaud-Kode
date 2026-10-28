@@ -20,7 +20,7 @@ test("known console encodings still decode correctly and valid UTF-8 wins", () =
 });
 
 test("windowed reads use the same reversible fallback, including C1 bytes", async (t) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "kloud-encoding-test-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "klaud-encoding-test-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const file = path.join(dir, "raw.txt");
   fs.writeFileSync(file, Buffer.concat([Buffer.from("skip\n"), bytes, Buffer.from("\nend")]));

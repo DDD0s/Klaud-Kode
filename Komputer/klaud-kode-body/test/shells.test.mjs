@@ -1,14 +1,14 @@
 // Shell selection and the PowerShell wrapper. Windows itself is simulated
 // (detectShells takes the environment and an exists() probe); the wrapper's
 // behaviour is checked against a real PowerShell 7 when one is installed:
-// set KLOUD_KODE_TEST_PWSH to its directory, or put pwsh on PATH.
+// set KLAUD_KODE_TEST_PWSH to its directory, or put pwsh on PATH.
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { cmdArgs, decodeOutput, detectShells, powershellArgs, powershellScript, runCommand, Processes } from "../server.mjs";
 
-if (process.env.KLOUD_KODE_TEST_PWSH) process.env.PATH = `${process.env.KLOUD_KODE_TEST_PWSH}${path.delimiter}${process.env.PATH}`;
+if (process.env.KLAUD_KODE_TEST_PWSH) process.env.PATH = `${process.env.KLAUD_KODE_TEST_PWSH}${path.delimiter}${process.env.PATH}`;
 const pwsh = String(process.env.PATH || process.env.Path || "").split(path.delimiter).some((d) => d && (fs.existsSync(path.join(d, "pwsh")) || fs.existsSync(path.join(d, "pwsh.exe"))));
 
 test("Windows shells: Git Bash is bash, WSL's System32 bash.exe is not, pwsh is found on PATH", () => {
@@ -68,8 +68,8 @@ test("the PowerShell script and arguments: UTF-8, plain-text errors, bash exit s
 
 test("cmd: the command reaches a second cmd started after chcp 65001, through one parse", () => {
   const c = cmdArgs(`echo "a & b"! & exit /b 5`, { exe: "C:\\Windows\\System32\\cmd.exe" });
-  assert.deepEqual(c.args, ["/d", "/v:on", "/s", "/c", `"chcp 65001>nul & "C:\\Windows\\System32\\cmd.exe" /d /s /c "!KLOUD_KODE_CMD!""`]);
-  assert.deepEqual(c.env, { KLOUD_KODE_CMD: `echo "a & b"! & exit /b 5` });
+  assert.deepEqual(c.args, ["/d", "/v:on", "/s", "/c", `"chcp 65001>nul & "C:\\Windows\\System32\\cmd.exe" /d /s /c "!KLAUD_KODE_CMD!""`]);
+  assert.deepEqual(c.env, { KLAUD_KODE_CMD: `echo "a & b"! & exit /b 5` });
   assert.deepEqual(cmdArgs("dir", { utf8: false }), { args: ["/d", "/s", "/c", `"dir"`], env: {} });
 });
 

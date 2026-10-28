@@ -1,4 +1,4 @@
-# Kloud Kode Body
+# Klaud Kode Body
 
 Body 跑在你想操作的电脑上，提供文件、命令、进程和本机 MCP 工具。
 远端 Claude Code 通过它操作这台电脑。
@@ -8,15 +8,15 @@ Body 跑在你想操作的电脑上，提供文件、命令、进程和本机 MC
 
 ## 安装
 
-需要 Git 和能访问 GitHub Releases 的网络，不需要 Go。启动脚本会下载与 `Komputer/VERSION` 对应的预编译二进制并校验 SHA-256；只有 `KLOUD_KODE_BUILD=1` 从源码构建时才需要 Go 1.27 以上。旧的 JavaScript 实现仍可用 `KOMPUTER_IMPL=node` 回退，那时才需要 Node.js 20 以上。
+需要 Git 和能访问 GitHub Releases 的网络，不需要 Go。启动脚本会下载与 `Komputer/VERSION` 对应的预编译二进制并校验 SHA-256；只有 `KLAUD_KODE_BUILD=1` 从源码构建时才需要 Go 1.27 以上。旧的 JavaScript 实现仍可用 `KOMPUTER_IMPL=node` 回退，那时才需要 Node.js 20 以上。
 在要操作的电脑上打开终端：
 
 ```bash
-git clone https://github.com/DDD0s/Kloud-Kode.git
-cd Kloud-Kode/Komputer/kloud-kode-body
+git clone https://github.com/DDD0s/Klaud-Kode.git
+cd Klaud-Kode/Komputer/klaud-kode-body
 ```
 
-已有代码就直接进入 `Komputer/kloud-kode-body`。
+已有代码就直接进入 `Komputer/klaud-kode-body`。
 
 生成一个随机 token：
 
@@ -31,16 +31,16 @@ openssl rand -hex 32
 Windows PowerShell：
 
 ```powershell
-New-Item -ItemType Directory -Path "$env:USERPROFILE\.kloud-kode-body" -Force
-Copy-Item config.example.json "$env:USERPROFILE\.kloud-kode-body\config.json"
+New-Item -ItemType Directory -Path "$env:USERPROFILE\.klaud-kode-body" -Force
+Copy-Item config.example.json "$env:USERPROFILE\.klaud-kode-body\config.json"
 ```
 
 Linux / macOS：
 
 ```bash
-mkdir -p "$HOME/.kloud-kode-body"
-cp config.example.json "$HOME/.kloud-kode-body/config.json"
-chmod 600 "$HOME/.kloud-kode-body/config.json"
+mkdir -p "$HOME/.klaud-kode-body"
+cp config.example.json "$HOME/.klaud-kode-body/config.json"
+chmod 600 "$HOME/.klaud-kode-body/config.json"
 ```
 
 已有配置不要覆盖。编辑复制后的 `config.json`，把 `token` 换成刚才生成的值，
@@ -76,13 +76,13 @@ Windows PowerShell：
 .\start.ps1 http
 ```
 
-两个脚本都会把对应版本的预编译二进制下载到 `bin/`（校验 SHA-256）后启动 `kloud-kode body http`。也可以直接从 GitHub Releases 下载对应平台的压缩包，解压后运行其中的 `kloud-kode body http`，完全不需要 clone 仓库；配置文件仍按下面说明放在用户目录。
+两个脚本都会把对应版本的预编译二进制下载到 `bin/`（校验 SHA-256）后启动 `klaud-kode body http`。也可以直接从 GitHub Releases 下载对应平台的压缩包，解压后运行其中的 `klaud-kode body http`，完全不需要 clone 仓库；配置文件仍按下面说明放在用户目录。
 
 看到监听 `127.0.0.1:8787` 的日志后，保持进程运行。另开终端访问 `http://127.0.0.1:8787/healthz`，
 确认服务能响应。健康检查不需要 token，也不代表 MCP 鉴权已经通过。
 
-可用 `KLOUD_KODE_BODY_CONFIG` 指定其他配置文件，`KLOUD_KODE_BODY_TOKEN` 覆盖配置里的 token。
-`./start.sh stdio`（或 `kloud-kode body stdio`）提供给同机 MCP 客户端使用，不启动 HTTP 端口。
+可用 `KLAUD_KODE_BODY_CONFIG` 指定其他配置文件，`KLAUD_KODE_BODY_TOKEN` 覆盖配置里的 token。
+`./start.sh stdio`（或 `klaud-kode body stdio`）提供给同机 MCP 客户端使用，不启动 HTTP 端口。
 HTTP 模式下 token 也可以写在路径里（`http://主机:端口/mcp/<token>`），给只能配置 URL、不能加请求头的客户端用。
 
 ## 远端怎么连接
@@ -91,11 +91,11 @@ HTTP 模式下 token 也可以写在路径里（`http://主机:端口/mcp/<token
 
 **主动拨出（异地 / 家里那台）**：这台电脑出站连到大脑并一直挂着，断线自动重连。
 远端 `env` 里设 `KOMPUTER_BODY_CONNECT=1` 与相同的 `KOMPUTER_BODY_TOKEN`，本地执行
-`kloud-kode body connect --to https://你的大脑域名`（也可以在配置里写 `brainUrl`，启动时就不带参数）。
+`klaud-kode body connect --to https://你的大脑域名`（也可以在配置里写 `brainUrl`，启动时就不带参数）。
 不需要路由器转发、不需要 SSH、不需要内网产品，适合长期在亲友家无人值守的那种场景。
 
 **虚拟内网（推荐）**：两台机器加入同一个 Tailscale / ZeroTier / WireGuard 网络，把 `host` 改成内网地址
-（或设 `KLOUD_KODE_BODY_HOST`），远端填 `KOMPUTER_BODY_URL=http://<内网地址>:8787/mcp/<token>`。
+（或设 `KLAUD_KODE_BODY_HOST`），远端填 `KOMPUTER_BODY_URL=http://<内网地址>:8787/mcp/<token>`。
 不需要 SSH，也不需要开公网端口。
 
 **SSH 隧道**：保持只监听本机，按 [安装步骤](../SETUP.md) 建立隧道后，远端 MCP 地址是

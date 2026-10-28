@@ -48,4 +48,4 @@
 - Linux CI 覆盖 Node.js 22 和 24，包括严格证书验证的 HTTPS 测试。
 
 安装从 [SETUP.md](SETUP.md) 开始，旧配置迁移见 [迁移说明](docs/komputer-migration.md)。
-具体问题和方案可以在 [Issues](https://github.com/DDD0s/Kloud-Kode/issues) 讨论。
+具体问题和方案可以在 [Issues](https://github.com/DDD0s/Klaud-Kode/issues) 讨论。

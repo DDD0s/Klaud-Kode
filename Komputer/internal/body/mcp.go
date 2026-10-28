@@ -7,7 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/identity"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/identity"
 	"io"
 	"net"
 	"net/http"
@@ -197,7 +197,7 @@ func (s *Service) Handler() http.Handler {
 			if !tokenMatches(supplied, s.cfg.Token) {
 				s.logf("identity auth failed from %s", socketAddress(r))
 				time.Sleep(1000 * time.Millisecond)
-				w.Header().Set("WWW-Authenticate", `Bearer realm="kloud-kode-body"`)
+				w.Header().Set("WWW-Authenticate", `Bearer realm="klaud-kode-body"`)
 				writeMCPJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid token"})
 				return
 			}
@@ -214,7 +214,7 @@ func (s *Service) Handler() http.Handler {
 			return
 		}
 		if r.Method == http.MethodGet && (path == "/healthz" || path == "/health") {
-			writeMCPJSON(w, http.StatusOK, map[string]any{"ok": true, "service": "kloud-kode-body", "version": Version})
+			writeMCPJSON(w, http.StatusOK, map[string]any{"ok": true, "service": "klaud-kode-body", "version": Version})
 			return
 		}
 		// The token may travel in the path, because some MCP clients
@@ -235,7 +235,7 @@ func (s *Service) Handler() http.Handler {
 		if !tokenMatches(supplied, s.cfg.Token) {
 			s.logf("auth failed from %s %s %s", socketAddress(r), r.Method, maskToken(path))
 			time.Sleep(1000 * time.Millisecond)
-			w.Header().Set("WWW-Authenticate", `Bearer realm="kloud-kode-body"`)
+			w.Header().Set("WWW-Authenticate", `Bearer realm="klaud-kode-body"`)
 			writeMCPJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid token"})
 			return
 		}
@@ -341,7 +341,7 @@ func (s *Service) Run(ctx context.Context, mode string) error {
 		mode = "http"
 	}
 	if mode != "http" && mode != "stdio" && mode != "connect" {
-		return fmt.Errorf("usage: kloud-kode body [http|stdio|connect]")
+		return fmt.Errorf("usage: klaud-kode body [http|stdio|connect]")
 	}
 	s.ConnectNested(ctx)
 	rootsText := []string{}
@@ -349,15 +349,15 @@ func (s *Service) Run(ctx context.Context, mode string) error {
 		rootsText = append(rootsText, name+"->"+dir)
 	}
 	if mode == "connect" {
-		s.logf("kloud-kode-body %s connecting to brain, roots: %s (files=%v shell=%v processes=%v)", Version, strings.Join(rootsText, " "), s.cfg.Files, s.cfg.Shell, s.cfg.Processes)
+		s.logf("klaud-kode-body %s connecting to brain, roots: %s (files=%v shell=%v processes=%v)", Version, strings.Join(rootsText, " "), s.cfg.Files, s.cfg.Shell, s.cfg.Processes)
 		return s.ServeConnect(ctx, s.cfg.BrainURL)
 	}
 	if mode == "stdio" {
-		s.logf("kloud-kode-body %s on stdio, roots: %s (files=%v shell=%v processes=%v)", Version, strings.Join(rootsText, " "), s.cfg.Files, s.cfg.Shell, s.cfg.Processes)
+		s.logf("klaud-kode-body %s on stdio, roots: %s (files=%v shell=%v processes=%v)", Version, strings.Join(rootsText, " "), s.cfg.Files, s.cfg.Shell, s.cfg.Processes)
 		return s.serveStdio(ctx, os.Stdin, os.Stdout)
 	}
 	if len(s.cfg.Token) < 24 {
-		return fmt.Errorf("HTTP mode needs a token of at least 24 characters (set `token` in %s or KLOUD_KODE_BODY_TOKEN); refusing to start without authorization", s.cfg.ConfigPath)
+		return fmt.Errorf("HTTP mode needs a token of at least 24 characters (set `token` in %s or KLAUD_KODE_BODY_TOKEN); refusing to start without authorization", s.cfg.ConfigPath)
 	}
 	addr := net.JoinHostPort(s.cfg.Host, fmt.Sprint(s.cfg.Port))
 	listener, err := net.Listen("tcp", addr)
@@ -368,7 +368,7 @@ func (s *Service) Run(ctx context.Context, mode string) error {
 	// reachable from another machine, which is the usual private-network slip.
 	if host, _, splitErr := net.SplitHostPort(listener.Addr().String()); splitErr == nil {
 		if host == "127.0.0.1" || host == "::1" || host == "localhost" {
-			s.logf("bound to loopback; another machine cannot reach it — set `host` in %s or KLOUD_KODE_BODY_HOST to the private-network address", s.cfg.ConfigPath)
+			s.logf("bound to loopback; another machine cannot reach it — set `host` in %s or KLAUD_KODE_BODY_HOST to the private-network address", s.cfg.ConfigPath)
 		}
 	}
 	// No ReadTimeout: a tool call can stream for minutes and MCP bodies reach
@@ -381,7 +381,7 @@ func (s *Service) Run(ctx context.Context, mode string) error {
 	}
 	errCh := make(chan error, 1)
 	go func() {
-		s.logf("kloud-kode-body %s on http://%s/mcp, roots: %s (files=%v shell=%v processes=%v)", Version, listener.Addr(), strings.Join(rootsText, " "), s.cfg.Files, s.cfg.Shell, s.cfg.Processes)
+		s.logf("klaud-kode-body %s on http://%s/mcp, roots: %s (files=%v shell=%v processes=%v)", Version, listener.Addr(), strings.Join(rootsText, " "), s.cfg.Files, s.cfg.Shell, s.cfg.Processes)
 		err := server.Serve(listener)
 		if err != nil && err != http.ErrServerClosed {
 			errCh <- err

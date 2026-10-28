@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/domain"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/harness"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/responses"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/domain"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/harness"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/responses"
 )
 
 func cloneResponseMap(in map[string]any) map[string]any {

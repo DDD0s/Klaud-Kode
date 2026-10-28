@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Kloud Kode Body — the MCP server that runs on the machine you want to drive.
+ * Klaud Kode Body — the MCP server that runs on the machine you want to drive.
  *
  * The brain (Claude Code, elsewhere) reaches this over a private network and
  * calls these tools to act here: run commands, read and write files, keep
@@ -27,7 +27,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { z } from "zod";
 
 const VERSION = "1.3.0";
-const CONFIG_PATH = process.env.KLOUD_KODE_BODY_CONFIG || path.join(os.homedir(), ".kloud-kode-body", "config.json");
+const CONFIG_PATH = process.env.KLAUD_KODE_BODY_CONFIG || path.join(os.homedir(), ".klaud-kode-body", "config.json");
 
 // ---------------------------------------------------------------- config
 
@@ -71,7 +71,7 @@ async function loadConfig() {
   );
   if (!cfg.roots[cfg.defaultRoot]) cfg.defaultRoot = Object.keys(cfg.roots)[0];
   if (!cfg.defaultRoot) throw new Error("config needs at least one entry in `roots`");
-  cfg.token = process.env.KLOUD_KODE_BODY_TOKEN || raw.token || "";
+  cfg.token = process.env.KLAUD_KODE_BODY_TOKEN || raw.token || "";
   cfg.configPath = CONFIG_PATH;
   return cfg;
 }
@@ -203,7 +203,7 @@ class Roots {
 function commandEnv() {
   const env = { ...process.env };
   for (const k of Object.keys(env)) {
-    if (/^KLOUD_KODE_BODY_(TOKEN|CONFIG)$/i.test(k)) delete env[k];
+    if (/^KLAUD_KODE_BODY_(TOKEN|CONFIG)$/i.test(k)) delete env[k];
   }
   return env;
 }
@@ -303,7 +303,7 @@ function powershellArgs(command, { utf8 = true, interactive = false, file: viaFi
     "-InputFormat", "None", "-OutputFormat", "Text"];
   const encoded = Buffer.from(script, "utf16le").toString("base64");
   if (!viaFile && encoded.length <= MAX_ENCODED_COMMAND) return { args: [...head, "-EncodedCommand", encoded], file: null };
-  const file = path.join(tmpDir, `kloud-kode-${randomUUID()}.ps1`);
+  const file = path.join(tmpDir, `klaud-kode-${randomUUID()}.ps1`);
   // Windows PowerShell 5.1 reads a script without a BOM in the ANSI code page.
   return { args: [...head, "-File", file], file: { path: file, content: "\uFEFF" + script } };
 }
@@ -316,7 +316,7 @@ function powershellArgs(command, { utf8 = true, interactive = false, file: viaFi
  */
 function cmdArgs(command, { utf8 = true, exe = "cmd.exe" } = {}) {
   if (!utf8) return { args: ["/d", "/s", "/c", `"${command}"`], env: {} };
-  return { args: ["/d", "/v:on", "/s", "/c", `"chcp 65001>nul & "${exe}" /d /s /c "!KLOUD_KODE_CMD!""`], env: { KLOUD_KODE_CMD: command } };
+  return { args: ["/d", "/v:on", "/s", "/c", `"chcp 65001>nul & "${exe}" /d /s /c "!KLAUD_KODE_CMD!""`], env: { KLAUD_KODE_CMD: command } };
 }
 
 /**
@@ -1150,7 +1150,7 @@ async function serveHttp(cfg, state) {
 
     if (req.method === "GET" && (p === "/healthz" || p === "/health")) {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true, service: "kloud-kode-body", version: VERSION }));
+      res.end(JSON.stringify({ ok: true, service: "klaud-kode-body", version: VERSION }));
       return;
     }
 
@@ -1242,13 +1242,13 @@ async function main() {
   if (!cfg.token || cfg.token.length < 32) {
     console.error(
       `HTTP mode needs a token of at least 32 characters.\n` +
-        `Put it in ${cfg.configPath} as "token", or set KLOUD_KODE_BODY_TOKEN.\n` +
+        `Put it in ${cfg.configPath} as "token", or set KLAUD_KODE_BODY_TOKEN.\n` +
         `Generate one with:  node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
     );
     process.exit(2);
   }
   await serveHttp(cfg, state);
-  log(`kloud-kode-body ${VERSION} on http://${cfg.host}:${cfg.port}/mcp/<token>`);
+  log(`klaud-kode-body ${VERSION} on http://${cfg.host}:${cfg.port}/mcp/<token>`);
   log(`roots: ${Object.entries(cfg.roots).map(([n, p]) => `${n}=${p}`).join("  ")}`);
   log(`console encoding: ${CONSOLE_ENCODING}   nested MCP: ${state.nested.names().join(", ") || "(none)"}`);
   if (!["127.0.0.1", "::1", "localhost"].includes(cfg.host)) {

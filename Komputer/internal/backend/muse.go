@@ -9,9 +9,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/childenv"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/config"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/domain"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/childenv"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/config"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/domain"
 )
 
 var museEfforts = map[string]bool{

@@ -27,13 +27,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/backend"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/config"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/domain"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/harness"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/responses"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/runner"
-	"github.com/DDD0s/Kloud-Kode/Komputer/internal/session"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/backend"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/config"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/domain"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/harness"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/responses"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/runner"
+	"github.com/DDD0s/Klaud-Kode/Komputer/internal/session"
 )
 
 // Server is the API service. This first Go slice implements the Claude
@@ -204,7 +204,7 @@ func mkdirWithRetry(dir string) error {
 				return nil
 			}
 		}
-		if debug := os.Getenv("KLOUD_DEBUG_MKDIR"); debug != "" {
+		if debug := os.Getenv("KLAUD_DEBUG_MKDIR") + os.Getenv("KLOUD_DEBUG_MKDIR"); debug != "" {
 			fmt.Fprintf(os.Stderr, "DEBUG mkdir %q attempt %d: %v\n", dir, attempt, err)
 			if info, statErr := os.Stat(filepath.Dir(dir)); statErr == nil {
 				fmt.Fprintf(os.Stderr, "DEBUG parent mode=%v isDir=%v\n", info.Mode(), info.IsDir())
@@ -220,9 +220,9 @@ func mkdirWithRetry(dir string) error {
 	return err
 }
 
-// s_debugf writes startup diagnostics when KLOUD_DEBUG_MKDIR is set.
+// s_debugf writes startup diagnostics when KLAUD_DEBUG_MKDIR is set.
 func s_debugf(format string, args ...any) {
-	if os.Getenv("KLOUD_DEBUG_MKDIR") != "" {
+	if os.Getenv("KLAUD_DEBUG_MKDIR")+os.Getenv("KLOUD_DEBUG_MKDIR") != "" {
 		fmt.Fprintf(os.Stderr, "DEBUG "+format+"\n", args...)
 	}
 }

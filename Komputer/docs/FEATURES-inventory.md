@@ -1,16 +1,16 @@
-# Kloud Kode feature inventory (main branch)
+# Klaud Kode feature inventory (main branch)
 
 > Historical snapshot of the JavaScript implementation at `90753b7`, kept as the
 > design record for the Go rewrite. The deployment default is now the Go binary;
 > see `docs/go-rewrite.md`. Where the two differ, the Go code and its tests win.
 
-What Kloud Kode did on `main` at that revision, as the owner built it. It was assembled by
+What Klaud Kode did on `main` at that revision, as the owner built it. It was assembled by
 reading every tracked file on `main` at `90753b7` (source, docs, configs, scripts,
 tests, CI) and all 14 commit messages. Nothing here describes PR #1 except the last
 section, which lists where PR #1's assumptions disagree with this design.
 
-Versions on main: API `kloud-kode-api` 0.9.0, workstation `kloud-kode-body` 1.2.1.
-Product name "Kloud Kode by Kosmolopic"; internal name `komputer` (an earlier internal
+Versions on main: API `klaud-kode-api` 0.9.0, workstation `klaud-kode-body` 1.2.1.
+Product name "Klaud Kode by Kosmolopic"; internal name `komputer` (an earlier internal
 name was retired by an explicit, tested rename, so it is not repeated here).
 
 ## 1. What it is, in one paragraph
@@ -44,7 +44,7 @@ never passed to clients verbatim.
 | `komputer-api/client-tools.mjs` | brain host | Harness mode: per-run loopback MCP server that hands Claude's tool calls back to the client |
 | `komputer-api/public-http.mjs` | brain host | TLS, CORS, failed-auth limiter, public-listener rules |
 | `komputer-api/claude-env.mjs` | brain host | Allowlisted environment for the `claude` child |
-| `kloud-kode-body/server.mjs` | user's computer | MCP server: shell, files, processes, nested local MCP servers |
+| `klaud-kode-body/server.mjs` | user's computer | MCP server: shell, files, processes, nested local MCP servers |
 | `komputer/tunnel-up.sh` | brain host | SSH local forward brain `127.0.0.1:18787` to Body `127.0.0.1:8787` (Body mode only) |
 | `komputer-session/` | template | `.mcp.json` pointing Claude at the Body (`komputer_use`, Bearer token placeholder) and `settings.local.json` enabling it |
 | `deploy/` | operator's machine | Update an existing brain install from `origin/main`, with rollback |
@@ -114,7 +114,7 @@ Child process environment (`claude-env.mjs`): an allowlist (PATH, HOME, locale,
 certificates, Windows login paths, `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_OAUTH_TOKEN`, MCP
 timeouts, shell and terminal settings, telemetry, proxies, existing `ANTHROPIC_API_KEY` /
 `ANTHROPIC_AUTH_TOKEN`), plus exact names from `KOMPUTER_CHILD_ENV_EXTRA`. Names starting
-with `KOMPUTER_`, `BODY_` or `KLOUD_KODE_`, and launcher settings, are always excluded.
+with `KOMPUTER_`, `BODY_` or `KLAUD_KODE_`, and launcher settings, are always excluded.
 It also sets `CI=1` and `GIT_CEILING_DIRECTORIES` to the parent of the canonical cwd, so
 git cannot discover a repository above it. Upper- and lowercase proxy variables are
 normalised (uppercase wins), no proxy is invented, and harness runs get `127.0.0.1` added
@@ -186,7 +186,7 @@ experimental `KOMPUTER_SYSTEM_PROMPT_FILE` full replacement (which must re-teach
 or running the brain on the same OS. `--exclude-dynamic-system-prompt-sections` is noted as
 moving, not hiding, that information.
 
-## 7. Body (`kloud-kode-body` 1.2.1)
+## 7. Body (`klaud-kode-body` 1.2.1)
 
 An MCP server (server name `komputer`; the brain's `.mcp.json` names it `komputer_use`).
 
@@ -212,8 +212,8 @@ compared as SHA-256 digests in constant time, 1 s delay on failure, POST only, 1
 limit, a fresh stateless MCP server per request while processes and nested clients live in
 shared state. HTTP mode refuses to start without a token of at least 32 characters, and
 warns when listening beyond loopback. `stdio` mode is also available. Config lives in
-`~/.kloud-kode-body/config.json` (`KLOUD_KODE_BODY_CONFIG`), token via
-`KLOUD_KODE_BODY_TOKEN`.
+`~/.klaud-kode-body/config.json` (`KLAUD_KODE_BODY_CONFIG`), token via
+`KLAUD_KODE_BODY_TOKEN`.
 
 Body reachability from the API: `ensureTunnel` probes `KOMPUTER_HEALTH_URL`; on failure
 it runs `tunnel-up.sh` once (single-flight). Success is cached 15 s, failure 30 s

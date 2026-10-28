@@ -13,7 +13,7 @@ const KEY = "r".repeat(40);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function fixture(t, extra = {}, prepare = () => {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "kloud-reliability-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "klaud-reliability-"));
   fs.mkdirSync(path.join(dir, "state"));
   fs.writeFileSync(path.join(dir, "KEYS.txt"), `api-key: ${KEY}\n`);
   prepare(dir);

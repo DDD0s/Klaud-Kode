@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Start the Kloud Kode Body on the computer it should operate.
+# Start the Klaud Kode Body on the computer it should operate.
 # Runs a checksum-verified precompiled release; no Go toolchain is needed.
-# KLOUD_KODE_BUILD=1 builds from this checkout instead. KOMPUTER_IMPL=node
+# KLAUD_KODE_BUILD=1 builds from this checkout instead. KOMPUTER_IMPL=node
 # runs the previous JavaScript implementation as the rollback path.
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,6 +15,12 @@ if [[ "${KOMPUTER_IMPL:-go}" == "node" ]]; then
   exec "$NODE" "$DIR/server.mjs" "$MODE" "$@"
 fi
 
+# Pre-rename variable names still work, so an untouched env file keeps working.
+: "${KLAUD_KODE_BIN:=${KLOUD_KODE_BIN:-}}"
+: "${KLAUD_KODE_VERSION:=${KLOUD_KODE_VERSION:-}}"
+: "${KLAUD_KODE_REPO:=${KLOUD_KODE_REPO:-}}"
+: "${KLAUD_KODE_RELEASE_BASE:=${KLOUD_KODE_RELEASE_BASE:-}}"
+: "${KLAUD_KODE_BUILD:=${KLOUD_KODE_BUILD:-}}"
 fail() { echo "ERROR: $*" >&2; exit 1; }
 
 verify_sum() {
@@ -30,38 +36,38 @@ verify_sum() {
 }
 
 prepare() {
-  if [[ -n "${KLOUD_KODE_BIN:-}" ]]; then
-    [[ -x "$KLOUD_KODE_BIN" ]] || fail "KLOUD_KODE_BIN is not executable: $KLOUD_KODE_BIN"
-    BIN="$KLOUD_KODE_BIN"
+  if [[ -n "${KLAUD_KODE_BIN:-}" ]]; then
+    [[ -x "$KLAUD_KODE_BIN" ]] || fail "KLAUD_KODE_BIN is not executable: $KLAUD_KODE_BIN"
+    BIN="$KLAUD_KODE_BIN"
     return 0
   fi
-  local requested="${KLOUD_KODE_VERSION:-}" os arch ext asset tmp repo base
+  local requested="${KLAUD_KODE_VERSION:-}" os arch ext asset tmp repo base
   if [[ -z "$requested" && -f "$MODULE/VERSION" ]]; then requested="$(tr -d "[:space:]" < "$MODULE/VERSION")"; fi
   [[ -n "$requested" ]] || requested="latest"
   case "$(uname -s)" in Linux*) os=linux ;; Darwin*) os=darwin ;; MINGW*|MSYS*|CYGWIN*) os=windows ;; *) fail "unsupported operating system: $(uname -s)" ;; esac
   case "$(uname -m)" in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; *) fail "unsupported architecture: $(uname -m)" ;; esac
   ext=""; if [[ "$os" == windows ]]; then ext=".exe"; fi
-  repo="${KLOUD_KODE_REPO:-DDD0s/Kloud-Kode}"
+  repo="${KLAUD_KODE_REPO:-DDD0s/Klaud-Kode}"
   if [[ "$requested" == latest ]]; then
     command -v curl >/dev/null 2>&1 || fail "curl is needed to resolve the latest release"
     requested="$(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" | sed -n "s/.*\"tag_name\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1)"
-    [[ -n "$requested" ]] || fail "could not resolve the latest Kloud Kode release"
+    [[ -n "$requested" ]] || fail "could not resolve the latest Klaud Kode release"
   fi
   cd "$DIR"
-  BIN="$DIR/bin/kloud-kode-$requested$ext"
+  BIN="$DIR/bin/klaud-kode-$requested$ext"
   if [[ -x "$BIN" ]]; then return 0; fi
-  if [[ "${KLOUD_KODE_BUILD:-}" == 1 ]]; then
-    command -v go >/dev/null 2>&1 || fail "KLOUD_KODE_BUILD=1 needs go on PATH"
+  if [[ "${KLAUD_KODE_BUILD:-}" == 1 ]]; then
+    command -v go >/dev/null 2>&1 || fail "KLAUD_KODE_BUILD=1 needs go on PATH"
     echo "building $BIN from source"
-    (cd "$MODULE" && go build -trimpath -ldflags "-X github.com/DDD0s/Kloud-Kode/Komputer/internal/version.Value=$requested" -o "$BIN" ./cmd/kloud-kode) || fail "go build failed"
+    (cd "$MODULE" && go build -trimpath -ldflags "-X github.com/DDD0s/Klaud-Kode/Komputer/internal/version.Value=$requested" -o "$BIN" ./cmd/klaud-kode) || fail "go build failed"
     return 0
   fi
   command -v curl >/dev/null 2>&1 || fail "curl is needed to download the release"
-  base="${KLOUD_KODE_RELEASE_BASE:-https://github.com/$repo/releases}"
-  asset="kloud-kode-$requested-$os-$arch"; if [[ "$os" == windows ]]; then asset="$asset.zip"; else asset="$asset.tar.gz"; fi
+  base="${KLAUD_KODE_RELEASE_BASE:-https://github.com/$repo/releases}"
+  asset="klaud-kode-$requested-$os-$arch"; if [[ "$os" == windows ]]; then asset="$asset.zip"; else asset="$asset.tar.gz"; fi
   tmp="$(mktemp -d)"
   trap "rm -rf \"$tmp\"" EXIT
-  echo "downloading Kloud Kode $requested ($os/$arch)"
+  echo "downloading Klaud Kode $requested ($os/$arch)"
   curl -fL --retry 3 -o "$tmp/$asset" "$base/download/$requested/$asset" || fail "download failed: $base/download/$requested/$asset"
   curl -fL --retry 3 -o "$tmp/SHA256SUMS" "$base/download/$requested/SHA256SUMS" || fail "could not download SHA256SUMS"
   ( cd "$tmp" && verify_sum "$tmp" "$asset" )
@@ -72,7 +78,7 @@ prepare() {
   else
     tar -xzf "$tmp/$asset" -C "$tmp/extract"
   fi
-  cp -f "$tmp/extract/kloud-kode$ext" "$BIN"
+  cp -f "$tmp/extract/klaud-kode$ext" "$BIN"
   chmod 0755 "$BIN"
   "$BIN" version >/dev/null || fail "the downloaded binary does not run"
 }

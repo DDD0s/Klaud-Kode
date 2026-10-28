@@ -1,12 +1,12 @@
 {
-  "name": "kloud-kode-body",
+  "name": "klaud-kode-body",
   "version": "1.3.0",
   "private": true,
-  "description": "Kloud Kode Body — MCP server that lets a remote Claude Code act on this machine",
+  "description": "Klaud Kode Body — MCP server that lets a remote Claude Code act on this machine",
   "type": "module",
   "main": "server.mjs",
   "bin": {
-    "kloud-kode-body": "server.mjs"
+    "klaud-kode-body": "server.mjs"
   },
   "engines": {
     "node": ">=20"

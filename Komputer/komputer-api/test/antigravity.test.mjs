@@ -343,7 +343,7 @@ test("agy: by default Body turns work like Claude's (agy's own tools off, the co
   assert.match(win.logs(), /remote tools \(commands\) are POSIX-only; the Windows computer is used through komputer_use with agy's own tools off/);
 });
 
-test("agy: in Body turns run_command runs on the user's computer through the bash shim, file tools are kept off this host", { skip: !haveBody ? "kloud-kode-body dependencies are not installed" : process.platform === "win32" ? "the real Body here is a Windows computer and the redirect is POSIX-only" : false }, async (t) => {
+test("agy: in Body turns run_command runs on the user's computer through the bash shim, file tools are kept off this host", { skip: !haveBody ? "klaud-kode-body dependencies are not installed" : process.platform === "win32" ? "the real Body here is a Windows computer and the redirect is POSIX-only" : false }, async (t) => {
   const body = await realBody(t);
   const f = await agyFixture(t, { KOMPUTER_AGY_PERMISSIONS: "skip" }, { prepare: (dir) => fs.writeFileSync(path.join(dir, ".mcp.json"), body.mcpJson) });
   const ws = fs.realpathSync(path.join(f.dir, "agy-ws", "body"));
@@ -367,7 +367,7 @@ test("agy: in Body turns run_command runs on the user's computer through the bas
 
 const fuseGaps = await fuseMissing("python3");
 
-test("agy: with the FUSE mount, agy's workspace is the user's files: reads, writes and commands all reach the Body", { skip: !haveBody ? "kloud-kode-body dependencies are not installed" : fuseGaps.length ? `no FUSE here: ${fuseGaps.join(", ")}` : false }, async (t) => {
+test("agy: with the FUSE mount, agy's workspace is the user's files: reads, writes and commands all reach the Body", { skip: !haveBody ? "klaud-kode-body dependencies are not installed" : fuseGaps.length ? `no FUSE here: ${fuseGaps.join(", ")}` : false }, async (t) => {
   const body = await realBody(t);
   const f = await agyFixture(t, { KOMPUTER_AGY_PERMISSIONS: "skip", KOMPUTER_AGY_REMOTE_TOOLS: "all" }, { prepare: (dir) => fs.writeFileSync(path.join(dir, ".mcp.json"), body.mcpJson) });
   const mnt = path.join(f.dir, "agy-ws", "remote");

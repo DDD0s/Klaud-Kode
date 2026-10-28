@@ -43,7 +43,7 @@ async function main() {
   }
   const system = sysFile && fs.existsSync(sysFile) ? fs.readFileSync(sysFile, "utf8") : null;
   const leaked = Object.keys(process.env).filter(
-    (k) => /^(KOMPUTER_|BODY_|KLOUD_KODE_|CUSTOM_)/.test(k) || ["CLAUDE_BIN", "NODE_BIN"].includes(k) || /SECRET/.test(k)
+    (k) => /^(KOMPUTER_|BODY_|KLAUD_KODE_|CUSTOM_)/.test(k) || ["CLAUDE_BIN", "NODE_BIN"].includes(k) || /SECRET/.test(k)
   );
   const envSeen = {
     path: Boolean(process.env.PATH || process.env.Path),

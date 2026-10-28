@@ -9,7 +9,7 @@
 
 ## 组成
 
-四段，全部在同一个二进制 `kloud-kode` 里：
+四段，全部在同一个二进制 `klaud-kode` 里：
 
 | 段 | 在哪里运行 | 做什么 |
 |---|---|---|
@@ -33,8 +33,8 @@ locale、用户名与 home。
 在你自己的电脑上采集：
 
 ```powershell
-kloud-kode identity capture --out machine-identity.json
-kloud-kode identity show        # 打码汇总，不打印完整序列号
+klaud-kode identity capture --out machine-identity.json
+klaud-kode identity show        # 打码汇总，不打印完整序列号
 ```
 
 > `machine-identity.json` 含真实硬件序列号，按凭据对待：文件权限为 0600，不要提交进仓库。
@@ -42,28 +42,28 @@ kloud-kode identity show        # 打码汇总，不打印完整序列号
 如果电脑上开着 Body，大脑也可以主动拉（token 必须一致）：
 
 ```bash
-curl -H "Authorization: Bearer $KLOUD_KODE_BODY_TOKEN" http://<本机内网地址>:8787/identity
+curl -H "Authorization: Bearer $KLAUD_KODE_BODY_TOKEN" http://<本机内网地址>:8787/identity
 ```
 
 在在 VM 模板里用，或写入离线 rootfs。大脑上生成并应用：
 
 ```bash
 # 布景：把 CLI 能读到的每一个环境文件都做成本机的版本，放到 stage 目录
-kloud-kode identity stage --profile machine-identity.json --root ./stage
+klaud-kode identity stage --profile machine-identity.json --root ./stage
 
 # 在布景里启动 CLI（需要 root 或用户命名空间）；
 # 它问系统什么，得到的都是这台电脑的答案
 ./deploy/stage-launch.sh ./stage <cli 命令>
 
 # QEMU 身份参数（uuid / smbios / vCPU / 内存）+ guest.env
-kloud-kode identity qemu --profile machine-identity.json
+klaud-kode identity qemu --profile machine-identity.json
 
 # VM 模板内（root 权限）；先 dry-run 看计划
-sudo kloud-kode identity apply --profile machine-identity.json --dry-run
-sudo kloud-kode identity apply --profile machine-identity.json --create-user
+sudo klaud-kode identity apply --profile machine-identity.json --dry-run
+sudo klaud-kode identity apply --profile machine-identity.json --create-user
 
 # 也可以在宿主机上先写入离线 rootfs
-kloud-kode identity apply --profile machine-identity.json --root ./vm-rootfs --create-user
+klaud-kode identity apply --profile machine-identity.json --root ./vm-rootfs --create-user
 ```
 
 ## 覆盖到 / 覆盖不到的范围

@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// Regression: brainUrl in the config file (and KLOUD_KODE_BRAIN_URL) must
+// Regression: brainUrl in the config file (and KLAUD_KODE_BRAIN_URL) must
 // actually reach Config. It was parsed into rawConfig and dropped, so only
 // --to on the command line ever worked.
 func TestLoadConfigBrainURL(t *testing.T) {
@@ -15,8 +15,8 @@ func TestLoadConfigBrainURL(t *testing.T) {
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("KLOUD_KODE_BODY_CONFIG", path)
-	t.Setenv("KLOUD_KODE_BRAIN_URL", "")
+	t.Setenv("KLAUD_KODE_BODY_CONFIG", path)
+	t.Setenv("KLAUD_KODE_BRAIN_URL", "")
 	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
@@ -25,7 +25,7 @@ func TestLoadConfigBrainURL(t *testing.T) {
 		t.Fatalf("BrainURL from file = %q", cfg.BrainURL)
 	}
 
-	t.Setenv("KLOUD_KODE_BRAIN_URL", "https://other.example")
+	t.Setenv("KLAUD_KODE_BRAIN_URL", "https://other.example")
 	cfg, err = LoadConfig()
 	if err != nil {
 		t.Fatal(err)

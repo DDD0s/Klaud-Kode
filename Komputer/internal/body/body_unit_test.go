@@ -23,11 +23,11 @@ func TestDecodeOutputFallbacks(t *testing.T) {
 
 func TestCmdArgsUtf8AndPlain(t *testing.T) {
 	args, env := CmdArgs("echo a & echo b", true, "C:/Windows/System32/cmd.exe")
-	if env["KLOUD_KODE_CMD"] != "echo a & echo b" {
+	if env["KLAUD_KODE_CMD"] != "echo a & echo b" {
 		t.Fatalf("env: %v", env)
 	}
 	joined := strings.Join(args, " ")
-	if !strings.Contains(joined, "chcp 65001>nul") || !strings.Contains(joined, "!KLOUD_KODE_CMD!") {
+	if !strings.Contains(joined, "chcp 65001>nul") || !strings.Contains(joined, "!KLAUD_KODE_CMD!") {
 		t.Fatalf("utf8 args: %q", args)
 	}
 	plain, env := CmdArgs("echo hi", false, "cmd.exe")

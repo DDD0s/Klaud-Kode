@@ -45,7 +45,7 @@ func CommandEnv() map[string]string {
 	}
 	for k := range env {
 		upper := strings.ToUpper(k)
-		if upper == "KLOUD_KODE_BODY_TOKEN" || upper == "KLOUD_KODE_BODY_CONFIG" {
+		if upper == "KLAUD_KODE_BODY_TOKEN" || upper == "KLAUD_KODE_BODY_CONFIG" {
 			delete(env, k)
 		}
 	}
@@ -283,7 +283,7 @@ func PowerShellArgs(command string, utf8, interactive, viaFile bool, tmpDir stri
 	if tmpDir == "" {
 		tmpDir = os.TempDir()
 	}
-	path := filepath.Join(tmpDir, "kloud-kode-"+randomID()+".ps1")
+	path := filepath.Join(tmpDir, "klaud-kode-"+randomID()+".ps1")
 	// Windows PowerShell 5.1 reads a BOM-less script as ANSI.
 	return append(head, "-File", path), &PowerShellFile{Path: path, Content: string([]rune{0xFEFF}) + script}
 }
@@ -300,8 +300,8 @@ func CmdArgs(command string, utf8 bool, exe string) (args []string, env map[stri
 	if !utf8 {
 		return []string{"/d", "/s", "/c", q + command + q}, map[string]string{}
 	}
-	inner := q + "chcp 65001>nul & " + q + exe + q + " /d /s /c " + q + "!KLOUD_KODE_CMD!" + q + q
-	return []string{"/d", "/v:on", "/s", "/c", inner}, map[string]string{"KLOUD_KODE_CMD": command}
+	inner := q + "chcp 65001>nul & " + q + exe + q + " /d /s /c " + q + "!KLAUD_KODE_CMD!" + q + q
+	return []string{"/d", "/v:on", "/s", "/c", inner}, map[string]string{"KLAUD_KODE_CMD": command}
 }
 func randomID() string {
 	var b [6]byte

@@ -1,4 +1,4 @@
-# Kloud Kode
+# Klaud Kode
 
 把远端服务器上的官方 AI 编程 CLI（Claude Code、Antigravity、Muse Code）转成标准 API，实现**云端跑模型、本地干活**。
 
